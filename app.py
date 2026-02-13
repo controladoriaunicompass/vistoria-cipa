@@ -223,7 +223,7 @@ if "logado" not in st.session_state:
     st.session_state.logado = False
 
 if not st.session_state.logado:
-    st.markdown("<h1 style='color:#2EA3D4;'>Plataforma de Inspeções</h1>", unsafe_allow_html=True)
+    st.markdown(     "<h1 style='color:#2EA3D4; font-size:44px; margin-bottom:0;'>Plataforma de Inspeções</h1>",     unsafe_allow_html=True )
     st.caption("CIPA & Brigada - acesso restrito")
     senha = st.text_input("Senha", type="password", key="login_senha")
     if st.button("Entrar", key="login_btn"):
@@ -238,7 +238,7 @@ if not st.session_state.logado:
 # UI
 # ========================
 st.set_page_config(page_title=APP_TITULO, layout="wide")
-st.markdown("<h1 style='color:#2EA3D4;'>Plataforma de Inspeções</h1>", unsafe_allow_html=True)
+st.markdown(     "<h1 style='color:#2EA3D4; font-size:44px; margin-bottom:0;'>Plataforma de Inspeções</h1>",     unsafe_allow_html=True )
 st.caption("CIPA & Brigada")
 
 try:
