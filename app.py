@@ -177,19 +177,69 @@ with tabs[0]:
 # DASHBOARD
 # ========================
 with tabs[1]:
+ st.subheader("Dashboard")
+
     df = load_df()
 
     if df.empty:
         st.info("Sem dados.")
     else:
-        c1, c2 = st.columns(2)
-        c1.metric("Conformidades", int(df["sim"].sum()))
-        c2.metric("Não Conformidades", int(df["nao"].sum()))
+        # ======================
+        # FILTROS
+        # ======================
+        col1, col2, col3 = st.columns(3)
 
-        st.write("### Resultado por setor")
-        graf = df.groupby("setor")[["sim","nao"]].sum()
-        st.bar_chart(graf)
+        with col1:
+            anos = sorted(df["ano"].unique())
+            f_ano = st.multiselect("Ano", anos, default=anos)
 
+        with col2:
+            meses = sorted(df["mes"].unique())
+            f_mes = st.multiselect("Mês", meses, default=meses)
+
+        with col3:
+            setores = sorted(df["setor"].unique())
+            f_setor = st.multiselect("Setor", setores, default=setores)
+
+        # aplica filtros
+        dff = df[
+            (df["ano"].isin(f_ano)) &
+            (df["mes"].isin(f_mes)) &
+            (df["setor"].isin(f_setor))
+        ]
+
+        if dff.empty:
+            st.warning("Sem dados para os filtros selecionados.")
+        else:
+            # ======================
+            # KPIs
+            # ======================
+            total_sim = int(dff["sim"].sum())
+            total_nao = int(dff["nao"].sum())
+            total = total_sim + total_nao
+            pct = (total_sim / total * 100) if total > 0 else 0
+
+            k1, k2, k3 = st.columns(3)
+            k1.metric("Conformidades", total_sim)
+            k2.metric("Não Conformidades", total_nao)
+            k3.metric("% Conformidade", f"{pct:.1f}%")
+
+            st.divider()
+
+            # ======================
+            # GRÁFICO POR SETOR
+            # ======================
+            st.write("### Resultado por setor")
+            graf = dff.groupby("setor")[["sim", "nao"]].sum()
+            st.bar_chart(graf)
+
+            # ======================
+            # EVOLUÇÃO MENSAL
+            # ======================
+            st.write("### Evolução mensal")
+            dff["mes_ano"] = dff["ano"].astype(str) + "-" + dff["mes"]
+            evol = dff.groupby("mes_ano")[["sim", "nao"]].sum().sort_index()
+            st.line_chart(evol)
 # ========================
 # ADMIN
 # ========================
