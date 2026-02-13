@@ -9,7 +9,7 @@ from datetime import datetime, date
 # ========================
 APP_TITULO = "Plataforma de Inspeções - CIPA & Brigada"
 
-SENHA_USUARIO = "cipa2026"       # senha para usuários preencherem/consultarem
+SENHA_USUARIO = "SSTLIDER"       # senha para usuários preencherem/consultarem
 CHAVE_ADMIN = "Uni06032023"      # chave interna (admin via URL)
 
 DB = "banco_v4.db"
