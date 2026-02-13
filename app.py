@@ -12,7 +12,7 @@ APP_TITULO = "Sistema de Vistoria CIPA"
 SENHA_USUARIO = "cipa2026"
 CHAVE_ADMIN = "Uni06032023"
 
-DB = "banco_v3.db"   # novo banco para evitar conflito com versões antigas
+DB = "banco_v3.db"
 
 MESES = ["01","02","03","04","05","06","07","08","09","10","11","12"]
 
@@ -43,6 +43,7 @@ SETORES = [
     "Administrativo piso superior",
 ]
 
+# (Por enquanto está reduzido — quando você quiser, eu deixo com TODAS as perguntas)
 PERGUNTAS = [
     "Superfícies de trabalho seguras",
     "Iluminação adequada",
@@ -87,8 +88,8 @@ def upsert_vistoria(ano, mes, setor, data_vistoria, responsavel_area, inspeciona
             inspecionado_por=excluded.inspecionado_por,
             respostas_json=excluded.respostas_json
     """, (
-        created_at, ano, mes, setor, data_vistoria,
-        responsavel_area, inspecionado_por,
+        created_at, int(ano), str(mes), str(setor), str(data_vistoria),
+        str(responsavel_area), str(inspecionado_por),
         json.dumps(respostas, ensure_ascii=False)
     ))
     conn.commit()
@@ -101,12 +102,18 @@ def load_df():
     df["respostas"] = df["respostas_json"].apply(json.loads)
     df["sim"] = df["respostas"].apply(lambda r: sum(1 for v in r.values() if v == "Sim"))
     df["nao"] = df["respostas"].apply(lambda r: sum(1 for v in r.values() if v == "Não"))
+    df["total_itens"] = df["respostas"].apply(lambda r: len(r))
     df["mes_ano"] = df["ano"].astype(str) + "-" + df["mes"]
     return df
 
+def delete_vistoria(ano, mes, setor):
+    c.execute("DELETE FROM vistoria WHERE ano=? AND mes=? AND setor=?", (int(ano), str(mes), str(setor)))
+    conn.commit()
+
 # ========================
-# MODO ADMIN
+# MODO ADMIN (via URL)
 # ========================
+# Ex.: https://SEUAPP.streamlit.app/?admin=1&key=Uni06032023
 is_admin = (st.query_params.get("admin") == "1" and st.query_params.get("key") == CHAVE_ADMIN)
 
 # ========================
@@ -132,8 +139,11 @@ if not st.session_state.logado:
 # ========================
 st.markdown("<h1 style='color:#2EA3D4;'>Sistema de Vistoria CIPA</h1>", unsafe_allow_html=True)
 
-# se você subir o logo no GitHub com nome logo.png, descomente:
-# st.image("logo.png", width=250)
+# Se você subir o logo como "logo.png" no GitHub, isso mostra no topo:
+try:
+    st.image("logo.png", width=220)
+except Exception:
+    pass
 
 st.divider()
 
@@ -159,7 +169,7 @@ with tabs[0]:
 
     respostas = {}
     for p in PERGUNTAS:
-        respostas[p] = st.radio(p, ["Sim", "Não"], horizontal=True)
+        respostas[p] = st.radio(p, ["Sim", "Não"], horizontal=True, key=f"resp_{p}")
 
     if st.button("💾 Salvar"):
         if not responsavel_area.strip():
@@ -169,92 +179,107 @@ with tabs[0]:
         else:
             upsert_vistoria(
                 ano, mes, setor, data_vistoria.isoformat(),
-                responsavel_area, inspecionado_por, respostas
+                responsavel_area.strip(), inspecionado_por.strip(), respostas
             )
-            st.success("Registro salvo / atualizado!")
+            st.success("✅ Registro salvo / atualizado!")
 
 # ========================
 # DASHBOARD
 # ========================
 with tabs[1]:
- st.subheader("Dashboard")
+    st.subheader("Dashboard")
 
     df = load_df()
-
     if df.empty:
         st.info("Sem dados.")
     else:
-        # ======================
         # FILTROS
-        # ======================
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            anos = sorted(df["ano"].unique())
+            anos = sorted(df["ano"].unique().tolist())
             f_ano = st.multiselect("Ano", anos, default=anos)
 
         with col2:
-            meses = sorted(df["mes"].unique())
-            f_mes = st.multiselect("Mês", meses, default=meses)
+            meses_disp = sorted(df["mes"].unique().tolist())
+            f_mes = st.multiselect("Mês", meses_disp, default=meses_disp)
 
         with col3:
-            setores = sorted(df["setor"].unique())
-            f_setor = st.multiselect("Setor", setores, default=setores)
+            setores_disp = sorted(df["setor"].unique().tolist())
+            f_setor = st.multiselect("Setor", setores_disp, default=setores_disp)
 
-        # aplica filtros
-        dff = df[
-            (df["ano"].isin(f_ano)) &
-            (df["mes"].isin(f_mes)) &
-            (df["setor"].isin(f_setor))
-        ]
+        dff = df[(df["ano"].isin(f_ano)) & (df["mes"].isin(f_mes)) & (df["setor"].isin(f_setor))].copy()
 
         if dff.empty:
             st.warning("Sem dados para os filtros selecionados.")
         else:
-            # ======================
-            # KPIs
-            # ======================
             total_sim = int(dff["sim"].sum())
             total_nao = int(dff["nao"].sum())
-            total = total_sim + total_nao
-            pct = (total_sim / total * 100) if total > 0 else 0
+            total_itens = int(dff["total_itens"].sum())
+            pct = (total_sim / total_itens * 100) if total_itens > 0 else 0
 
             k1, k2, k3 = st.columns(3)
-            k1.metric("Conformidades", total_sim)
-            k2.metric("Não Conformidades", total_nao)
+            k1.metric("Conformidades (Sim)", total_sim)
+            k2.metric("Não Conformidades (Não)", total_nao)
             k3.metric("% Conformidade", f"{pct:.1f}%")
 
             st.divider()
 
-            # ======================
-            # GRÁFICO POR SETOR
-            # ======================
-            st.write("### Resultado por setor")
-            graf = dff.groupby("setor")[["sim", "nao"]].sum()
-            st.bar_chart(graf)
+            st.write("### Conformidade x Não conformidade por Setor")
+            graf_setor = dff.groupby("setor")[["sim", "nao"]].sum().sort_values("nao", ascending=False)
+            st.bar_chart(graf_setor)
 
-            # ======================
-            # EVOLUÇÃO MENSAL
-            # ======================
-            st.write("### Evolução mensal")
-            dff["mes_ano"] = dff["ano"].astype(str) + "-" + dff["mes"]
+            st.write("### Evolução por competência (mês/ano)")
             evol = dff.groupby("mes_ano")[["sim", "nao"]].sum().sort_index()
             st.line_chart(evol)
+
 # ========================
 # ADMIN
 # ========================
 if is_admin:
     with tabs[2]:
+        st.subheader("Admin (interno)")
+
         df = load_df()
+        if df.empty:
+            st.info("Sem dados para exportar/excluir.")
+        else:
+            st.write("### Exportar CSV (1 linha por item)")
+            rows = []
+            for _, r in df.iterrows():
+                resp = r["respostas"]
+                for item, resposta in resp.items():
+                    rows.append({
+                        "created_at": r["created_at"],
+                        "ano": r["ano"],
+                        "mes": r["mes"],
+                        "setor": r["setor"],
+                        "data_vistoria": r["data_vistoria"],
+                        "responsavel_area": r["responsavel_area"],
+                        "inspecionado_por": r["inspecionado_por"],
+                        "item": item,
+                        "resposta": resposta
+                    })
+            flat = pd.DataFrame(rows)
+            csv = flat.to_csv(index=False).encode("utf-8-sig")
+            st.download_button("⬇️ Baixar CSV", data=csv, file_name="vistorias_cipa.csv", mime="text/csv")
 
-        if not df.empty:
-            csv = df.to_csv(index=False).encode("utf-8-sig")
-            st.download_button("⬇️ Exportar CSV", data=csv, file_name="dados.csv")
+            st.divider()
+            st.write("### Excluir registro (por Ano / Mês / Setor)")
 
-            st.write("### Excluir")
-            id_del = st.number_input("ID do registro", step=1)
-            if st.button("Excluir"):
-                c.execute("DELETE FROM vistoria WHERE id=?", (id_del,))
-                conn.commit()
-                st.success("Excluído.")
+            colA, colB, colC = st.columns(3)
+            with colA:
+                a_ano = st.selectbox("Ano", sorted(df["ano"].unique().tolist()))
+            with colB:
+                a_mes = st.selectbox("Mês", sorted(df[df["ano"] == a_ano]["mes"].unique().tolist()))
+            with colC:
+                setores_do_periodo = df[(df["ano"] == a_ano) & (df["mes"] == a_mes)]["setor"].unique().tolist()
+                a_setor = st.selectbox("Setor", sorted(setores_do_periodo))
+
+            st.caption("⚠️ A exclusão remove o registro e atualiza os gráficos.")
+
+            confirmar = st.checkbox("Confirmar exclusão")
+            if st.button("🗑️ Excluir", disabled=not confirmar):
+                delete_vistoria(a_ano, a_mes, a_setor)
+                st.success("✅ Registro excluído.")
                 st.rerun()
