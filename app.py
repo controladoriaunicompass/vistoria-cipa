@@ -8,13 +8,19 @@ from datetime import datetime, date
 # CONFIGURAÇÕES
 # ========================
 APP_TITULO = "Plataforma de Inspeções - CIPA & Brigada"
+APP_VERSAO = "v4.1"
+AMBIENTE = "Produção"
 
 SENHA_USUARIO = "SSTLIDER"       # senha para usuários preencherem/consultarem
 CHAVE_ADMIN = "Uni06032023"      # chave interna (admin via URL)
 
 DB = "banco_v4.db"
-
 MESES = ["01","02","03","04","05","06","07","08","09","10","11","12"]
+
+# ========================
+# PAGE CONFIG (TEM QUE SER ANTES DE QUALQUER st.*)
+# ========================
+st.set_page_config(page_title=APP_TITULO, layout="wide")
 
 # ===== Setores CIPA (24) =====
 CIPA_SETORES = [
@@ -62,7 +68,7 @@ BRIGADA_SETORES = [
 ]
 
 # ===== Perguntas por TIPO e ASSUNTO =====
-# Obs: CIPA fica em assunto único "Geral" (como você pediu).
+# CIPA fica em assunto único "Geral" (como você pediu).
 CHECKLISTS = {
     "CIPA": {
         "Geral": [
@@ -214,47 +220,108 @@ def export_flat_csv(dff: pd.DataFrame) -> bytes:
 # ========================
 # MODO ADMIN (interno via URL)
 # ========================
+# Ex.: https://SEUAPP.streamlit.app/?admin=1&key=Uni06032023
 is_admin = (st.query_params.get("admin") == "1" and st.query_params.get("key") == CHAVE_ADMIN)
 
 # ========================
-# LOGIN
+# SESSÃO / LOGIN
 # ========================
 if "logado" not in st.session_state:
     st.session_state.logado = False
 
-if not st.session_state.logado:
-    st.markdown(     "<h1 style='color:#2EA3D4; font-size:44px; margin-bottom:0;'>Plataforma de Inspeções</h1>",     unsafe_allow_html=True )
-    st.caption("CIPA & Brigada - acesso restrito")
-    senha = st.text_input("Senha", type="password", key="login_senha")
-    if st.button("Entrar", key="login_btn"):
-        if senha == SENHA_USUARIO:
-            st.session_state.logado = True
+def header_premium(subtitulo: str):
+    # Cabeçalho "enterprise": logo + título + subtítulo + infos + logout
+    col_logo, col_title, col_info, col_logout = st.columns([1.2, 5, 2.2, 1.2])
+
+    with col_logo:
+        # Mostra o logo se existir
+        try:
+            st.image("logo.png", width=150)
+        except Exception:
+            st.write("")
+
+    with col_title:
+        st.markdown(
+            f"""
+            <div style="line-height:1.1;">
+              <div style="color:#2EA3D4; font-size:52px; font-weight:800; margin-bottom:0;">
+                Plataforma de Inspeções
+              </div>
+              <div style="color:#1F2A44; font-size:18px; margin-top:-6px;">
+                {subtitulo}
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    with col_info:
+        agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+        st.markdown(
+            f"""
+            <div style="text-align:right; color:#1F2A44; font-size:13px; padding-top:10px;">
+              <div><b>{AMBIENTE}</b> • {APP_VERSAO}</div>
+              <div>{agora}</div>
+              <div>{"Admin" if is_admin else "Usuário"}</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    with col_logout:
+        if st.button("Sair", key="btn_logout"):
+            st.session_state.logado = False
             st.rerun()
-        else:
-            st.error("Senha incorreta.")
+
+    st.divider()
+
+# ========================
+# TELA DE LOGIN (enterprise)
+# ========================
+if not st.session_state.logado:
+    header_premium("CIPA & Brigada • acesso restrito")
+
+    st.markdown("### Acesso")
+    senha = st.text_input("Senha", type="password", key="login_senha")
+
+    c1, c2 = st.columns([1, 3])
+    with c1:
+        if st.button("Entrar", type="primary", key="login_btn"):
+            if senha == SENHA_USUARIO:
+                st.session_state.logado = True
+                st.rerun()
+            else:
+                st.error("Senha incorreta.")
+    with c2:
+        st.caption("Dica: use a senha informada pela Unicompass. Para acesso Admin, use o link com parâmetros.")
+
     st.stop()
 
 # ========================
-# UI
+# CABEÇALHO INTERNO
 # ========================
-st.set_page_config(page_title=APP_TITULO, layout="wide")
-st.markdown(     "<h1 style='color:#2EA3D4; font-size:44px; margin-bottom:0;'>Plataforma de Inspeções</h1>",     unsafe_allow_html=True )
-st.caption("CIPA & Brigada")
-
-try:
-    st.image("logo.png", width=220)
-except Exception:
-    pass
-
-st.divider()
-
-abas = ["📝 Preencher", "📊 Dashboard"] + (["🛠️ Admin (interno)"] if is_admin else [])
-tabs = st.tabs(abas)
+header_premium("CIPA & Brigada")
 
 # ========================
-# TAB: PREENCHER
+# MENU LATERAL (ENTERPRISE)
 # ========================
-with tabs[0]:
+st.sidebar.title("Menu")
+st.sidebar.caption("Navegação do sistema")
+
+pagina = st.sidebar.radio(
+    "Ir para",
+    options=(["📝 Preencher", "📊 Dashboard"] + (["🛠️ Admin"] if is_admin else [])),
+    key="nav_pagina"
+)
+
+st.sidebar.divider()
+st.sidebar.caption("Admin (interno) via URL:")
+st.sidebar.code("?admin=1&key=********", language="text")
+
+# ========================
+# PÁGINA: PREENCHER
+# ========================
+if pagina == "📝 Preencher":
     st.subheader("Preencher Checklist")
 
     colA, colB = st.columns([2, 3])
@@ -313,9 +380,9 @@ with tabs[0]:
             st.success("✅ Registro salvo/atualizado!")
 
 # ========================
-# TAB: DASHBOARD
+# PÁGINA: DASHBOARD
 # ========================
-with tabs[1]:
+elif pagina == "📊 Dashboard":
     st.subheader("Dashboard")
 
     df = load_df()
@@ -392,77 +459,83 @@ with tabs[1]:
             )
 
 # ========================
-# TAB: ADMIN (interno)
+# PÁGINA: ADMIN
 # ========================
-if is_admin:
-    with tabs[2]:
-        st.subheader("Admin (interno)")
-        st.caption("Acesso via URL: ?admin=1&key=...")
+elif pagina == "🛠️ Admin" and is_admin:
+    st.subheader("Admin (interno)")
+    st.caption("Acesso via URL: ?admin=1&key=...")
 
-        df = load_df()
-        if df.empty:
-            st.info("Sem registros.")
+    df = load_df()
+    if df.empty:
+        st.info("Sem registros.")
+    else:
+        st.write("### Excluir registro (por Tipo / Assunto / Competência / Setor)")
+
+        col1, col2, col3, col4, col5 = st.columns([1.2, 2.2, 1, 1, 3])
+
+        with col1:
+            a_tipo = st.selectbox("Tipo", sorted(df["tipo"].unique().tolist()), key="adm_tipo")
+
+        if a_tipo == "CIPA":
+            a_assunto = "Geral"
+            with col2:
+                st.caption("Assunto: Geral (CIPA).")
         else:
-            st.write("### Excluir registro (por Tipo / Assunto / Competência / Setor)")
+            with col2:
+                a_assunto = st.selectbox(
+                    "Assunto",
+                    sorted(df[df["tipo"] == a_tipo]["assunto"].unique().tolist()),
+                    key="adm_assunto"
+                )
 
-            col1, col2, col3, col4, col5 = st.columns([1.2, 2.2, 1, 1, 3])
+        with col3:
+            a_anos = sorted(df[(df["tipo"] == a_tipo) & (df["assunto"] == a_assunto)]["ano"].unique().tolist())
+            a_ano = st.selectbox("Ano", a_anos, key="adm_ano")
 
-            with col1:
-                a_tipo = st.selectbox("Tipo", sorted(df["tipo"].unique().tolist()), key="adm_tipo")
+        with col4:
+            a_meses = sorted(df[(df["tipo"] == a_tipo) & (df["assunto"] == a_assunto) & (df["ano"] == a_ano)]["mes"].unique().tolist())
+            a_mes = st.selectbox("Mês", a_meses, key="adm_mes")
 
-            if a_tipo == "CIPA":
-                a_assunto = "Geral"
-                with col2:
-                    st.caption("Assunto: Geral (CIPA).")
+        with col5:
+            setores = sorted(df[
+                (df["tipo"] == a_tipo) &
+                (df["assunto"] == a_assunto) &
+                (df["ano"] == a_ano) &
+                (df["mes"] == a_mes)
+            ]["setor"].unique().tolist())
+            a_setor = st.selectbox("Setor", setores, key="adm_setor") if setores else None
+
+        if a_setor:
+            preview = df[
+                (df["tipo"] == a_tipo) &
+                (df["assunto"] == a_assunto) &
+                (df["ano"] == a_ano) &
+                (df["mes"] == a_mes) &
+                (df["setor"] == a_setor)
+            ].copy()
+
+            if preview.empty:
+                st.warning("Registro não encontrado.")
             else:
-                with col2:
-                    a_assunto = st.selectbox("Assunto", sorted(df[df["tipo"] == a_tipo]["assunto"].unique().tolist()), key="adm_assunto")
+                r = preview.iloc[0]
+                st.json({
+                    "tipo": r["tipo"],
+                    "assunto": r["assunto"],
+                    "ano": int(r["ano"]),
+                    "mes": r["mes"],
+                    "setor": r["setor"],
+                    "data_vistoria": r["data_vistoria"],
+                    "responsavel_area": r["responsavel_area"],
+                    "inspecionado_por": r["inspecionado_por"],
+                    "sim": int(r["sim"]),
+                    "nao": int(r["nao"]),
+                })
 
-            with col3:
-                a_anos = sorted(df[(df["tipo"] == a_tipo) & (df["assunto"] == a_assunto)]["ano"].unique().tolist())
-                a_ano = st.selectbox("Ano", a_anos, key="adm_ano")
+                confirm = st.checkbox("Confirmar exclusão", key="adm_confirm")
+                if st.button("🗑️ Excluir", disabled=not confirm, key="adm_excluir"):
+                    delete_registro(a_tipo, a_assunto, a_ano, a_mes, a_setor)
+                    st.success("✅ Registro excluído.")
+                    st.rerun()
 
-            with col4:
-                a_meses = sorted(df[(df["tipo"] == a_tipo) & (df["assunto"] == a_assunto) & (df["ano"] == a_ano)]["mes"].unique().tolist())
-                a_mes = st.selectbox("Mês", a_meses, key="adm_mes")
-
-            with col5:
-                setores = sorted(df[
-                    (df["tipo"] == a_tipo) &
-                    (df["assunto"] == a_assunto) &
-                    (df["ano"] == a_ano) &
-                    (df["mes"] == a_mes)
-                ]["setor"].unique().tolist())
-                a_setor = st.selectbox("Setor", setores, key="adm_setor") if setores else None
-
-            if a_setor:
-                preview = df[
-                    (df["tipo"] == a_tipo) &
-                    (df["assunto"] == a_assunto) &
-                    (df["ano"] == a_ano) &
-                    (df["mes"] == a_mes) &
-                    (df["setor"] == a_setor)
-                ].copy()
-
-                if preview.empty:
-                    st.warning("Registro não encontrado.")
-                else:
-                    r = preview.iloc[0]
-                    st.json({
-                        "tipo": r["tipo"],
-                        "assunto": r["assunto"],
-                        "ano": int(r["ano"]),
-                        "mes": r["mes"],
-                        "setor": r["setor"],
-                        "data_vistoria": r["data_vistoria"],
-                        "responsavel_area": r["responsavel_area"],
-                        "inspecionado_por": r["inspecionado_por"],
-                        "sim": int(r["sim"]),
-                        "nao": int(r["nao"]),
-                    })
-
-                    confirm = st.checkbox("Confirmar exclusão", key="adm_confirm")
-                    if st.button("🗑️ Excluir", disabled=not confirm, key="adm_excluir"):
-                        delete_registro(a_tipo, a_assunto, a_ano, a_mes, a_setor)
-                        st.success("✅ Registro excluído.")
-                        st.rerun()
+else:
+    st.warning("Você não tem permissão para acessar esta página.")
