@@ -10,7 +10,7 @@ from datetime import datetime, date
 APP_TITULO = "Sistema de Vistoria CIPA"
 
 SENHA_USUARIO = "cipa2026"
-CHAVE_ADMIN = "unicompass@master"
+CHAVE_ADMIN = "Uni06032023"
 
 DB = "banco_v3.db"   # novo banco para evitar conflito com versões antigas
 
