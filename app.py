@@ -12,7 +12,7 @@ APP_TITULO = "Sistema de Vistoria CIPA"
 SENHA_USUARIO = "1234"     # senha única para entrar
 CHAVE_ADMIN = "admin123"   # chave secreta para modo admin (interno)
 
-DB = "banco.db"
+DB = "banco_v2.db"
 
 MESES = ["01","02","03","04","05","06","07","08","09","10","11","12"]
 
