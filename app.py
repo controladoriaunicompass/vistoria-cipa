@@ -12,12 +12,11 @@ APP_TITULO = "Plataforma de Inspeções - CIPA & Brigada"
 SENHA_USUARIO = "cipa2026"       # senha para usuários preencherem/consultarem
 CHAVE_ADMIN = "Uni06032023"      # chave interna (admin via URL)
 
-# Troquei o nome do DB para evitar conflito com versões antigas
 DB = "banco_v4.db"
 
 MESES = ["01","02","03","04","05","06","07","08","09","10","11","12"]
 
-# ===== Setores CIPA (seus 24) =====
+# ===== Setores CIPA (24) =====
 CIPA_SETORES = [
     "Recebimento e Estoque de Chapas",
     "Laboratório, Estoque de chapas Não conforme, Coletor de Aparas e Acessórios",
@@ -63,9 +62,9 @@ BRIGADA_SETORES = [
 ]
 
 # ===== Perguntas por TIPO e ASSUNTO =====
+# Obs: CIPA fica em assunto único "Geral" (como você pediu).
 CHECKLISTS = {
     "CIPA": {
-        # Placeholder (você manda o checklist completo depois e eu organizo por assunto)
         "Geral": [
             "Superfícies de trabalho estão secas ou são antiderrapantes?",
             "Iluminação é adequada às tarefas?",
@@ -141,8 +140,8 @@ c.execute("""
 CREATE TABLE IF NOT EXISTS registros (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at TEXT NOT NULL,
-    tipo TEXT NOT NULL,          -- CIPA / BRIGADA
-    assunto TEXT NOT NULL,       -- assunto do checklist
+    tipo TEXT NOT NULL,
+    assunto TEXT NOT NULL,
     ano INTEGER NOT NULL,
     mes TEXT NOT NULL,
     setor TEXT NOT NULL,
@@ -215,7 +214,6 @@ def export_flat_csv(dff: pd.DataFrame) -> bytes:
 # ========================
 # MODO ADMIN (interno via URL)
 # ========================
-# Ex.: https://SEUAPP.streamlit.app/?admin=1&key=Uni06032023
 is_admin = (st.query_params.get("admin") == "1" and st.query_params.get("key") == CHAVE_ADMIN)
 
 # ========================
@@ -227,8 +225,8 @@ if "logado" not in st.session_state:
 if not st.session_state.logado:
     st.markdown("<h1 style='color:#2EA3D4;'>Plataforma de Inspeções</h1>", unsafe_allow_html=True)
     st.caption("CIPA & Brigada - acesso restrito")
-    senha = st.text_input("Senha", type="password")
-    if st.button("Entrar"):
+    senha = st.text_input("Senha", type="password", key="login_senha")
+    if st.button("Entrar", key="login_btn"):
         if senha == SENHA_USUARIO:
             st.session_state.logado = True
             st.rerun()
@@ -239,10 +237,10 @@ if not st.session_state.logado:
 # ========================
 # UI
 # ========================
+st.set_page_config(page_title=APP_TITULO, layout="wide")
 st.markdown("<h1 style='color:#2EA3D4;'>Plataforma de Inspeções</h1>", unsafe_allow_html=True)
 st.caption("CIPA & Brigada")
 
-# Se subir o logo como logo.png no GitHub (raiz do repo), ele aparece:
 try:
     st.image("logo.png", width=220)
 except Exception:
@@ -261,36 +259,41 @@ with tabs[0]:
 
     colA, colB = st.columns([2, 3])
     with colA:
-        tipo = st.radio("Tipo", ["CIPA", "BRIGADA"], horizontal=True)
-    with colB:
-        assunto = st.selectbox("Assunto", assuntos_por_tipo(tipo))
+        tipo = st.radio("Tipo", ["CIPA", "BRIGADA"], horizontal=True, key="pre_tipo")
 
-    col1, col2, col3, col4 = st.columns([1,1,4,2])
+    # CIPA sem assunto (fixo)
+    if tipo == "CIPA":
+        assunto = "Geral"
+        st.caption("Assunto: Geral (CIPA não segmentado por assunto).")
+    else:
+        with colB:
+            assunto = st.selectbox("Assunto", assuntos_por_tipo(tipo), key="pre_assunto")
+
+    col1, col2, col3, col4 = st.columns([1, 1, 4, 2])
     with col1:
-        ano = st.number_input("Ano", min_value=2020, max_value=2100, value=datetime.now().year, step=1)
+        ano = st.number_input("Ano", min_value=2020, max_value=2100, value=datetime.now().year, step=1, key="pre_ano")
     with col2:
-        mes = st.selectbox("Mês", MESES, index=MESES.index(f"{datetime.now().month:02d}"))
+        mes = st.selectbox("Mês", MESES, index=MESES.index(f"{datetime.now().month:02d}"), key="pre_mes")
     with col3:
-        setor = st.selectbox("Setor", setores_por_tipo(tipo))
+        setor = st.selectbox("Setor", setores_por_tipo(tipo), key="pre_setor")
     with col4:
-        data_vistoria = st.date_input("Data", value=date.today())
+        data_vistoria = st.date_input("Data", value=date.today(), key="pre_data")
 
     col5, col6 = st.columns(2)
     with col5:
-        responsavel_area = st.text_input("Responsável da área *")
+        responsavel_area = st.text_input("Responsável da área *", key="pre_resp_area")
     with col6:
-        inspecionado_por = st.text_input("Inspecionado por *")
+        inspecionado_por = st.text_input("Inspecionado por *", key="pre_insp_por")
 
     st.caption("Campos com * são obrigatórios. Regra: 1 registro por Tipo + Assunto + Setor + Mês + Ano (salvar atualiza).")
     st.divider()
 
     perguntas = perguntas_por_tipo_assunto(tipo, assunto)
     respostas = {}
-
     for p in perguntas:
-        respostas[p] = st.radio(p, ["Sim", "Não"], horizontal=True, key=f"{tipo}_{assunto}_{p}")
+        respostas[p] = st.radio(p, ["Sim", "Não"], horizontal=True, key=f"q_{tipo}_{assunto}_{p}")
 
-    if st.button("💾 Salvar/Atualizar", type="primary"):
+    if st.button("💾 Salvar/Atualizar", type="primary", key="pre_salvar"):
         if not responsavel_area.strip():
             st.error("Informe o Responsável da área.")
         elif not inspecionado_por.strip():
@@ -319,22 +322,31 @@ with tabs[1]:
     if df.empty:
         st.info("Ainda não há registros.")
     else:
-        # Filtros (inclui tipo/assunto + competência + setor)
         c1, c2, c3, c4 = st.columns(4)
+
         with c1:
-            f_tipo = st.selectbox("Tipo", sorted(df["tipo"].unique().tolist()))
-        with c2:
-            assuntos = sorted(df[df["tipo"] == f_tipo]["assunto"].unique().tolist())
-            f_assunto = st.selectbox("Assunto", assuntos)
+            f_tipo = st.selectbox("Tipo", sorted(df["tipo"].unique().tolist()), key="dash_tipo")
+
+        # CIPA sem assunto (fixo)
+        if f_tipo == "CIPA":
+            f_assunto = "Geral"
+            with c2:
+                st.caption("Assunto: Geral (CIPA).")
+        else:
+            with c2:
+                assuntos = sorted(df[df["tipo"] == f_tipo]["assunto"].unique().tolist())
+                f_assunto = st.selectbox("Assunto", assuntos, key="dash_assunto")
+
         with c3:
             anos = sorted(df[(df["tipo"] == f_tipo) & (df["assunto"] == f_assunto)]["ano"].unique().tolist())
-            f_ano = st.multiselect("Ano", anos, default=anos)
+            f_ano = st.multiselect("Ano", anos, default=anos, key="dash_ano")
+
         with c4:
             meses = sorted(df[(df["tipo"] == f_tipo) & (df["assunto"] == f_assunto)]["mes"].unique().tolist())
-            f_mes = st.multiselect("Mês", meses, default=meses)
+            f_mes = st.multiselect("Mês", meses, default=meses, key="dash_mes")
 
         setores_disp = sorted(df[(df["tipo"] == f_tipo) & (df["assunto"] == f_assunto)]["setor"].unique().tolist())
-        f_setor = st.multiselect("Setor", setores_disp, default=setores_disp)
+        f_setor = st.multiselect("Setor", setores_disp, default=setores_disp, key="dash_setor")
 
         dff = df[
             (df["tipo"] == f_tipo) &
@@ -369,15 +381,14 @@ with tabs[1]:
             st.line_chart(evol)
 
             st.divider()
-
-            # ✅ Export CSV para usuário (como você pediu)
-            st.write("### Exportar (CSV)")
+            st.write("### Exportar (CSV) — disponível para o usuário")
             csv_bytes = export_flat_csv(dff)
             st.download_button(
                 "⬇️ Baixar CSV (filtrado)",
                 data=csv_bytes,
                 file_name=f"inspecoes_{f_tipo}_{f_assunto}.csv".replace(" ", "_"),
-                mime="text/csv"
+                mime="text/csv",
+                key="dash_export_csv"
             )
 
 # ========================
@@ -395,14 +406,26 @@ if is_admin:
             st.write("### Excluir registro (por Tipo / Assunto / Competência / Setor)")
 
             col1, col2, col3, col4, col5 = st.columns([1.2, 2.2, 1, 1, 3])
+
             with col1:
                 a_tipo = st.selectbox("Tipo", sorted(df["tipo"].unique().tolist()), key="adm_tipo")
-            with col2:
-                a_assunto = st.selectbox("Assunto", sorted(df[df["tipo"] == a_tipo]["assunto"].unique().tolist()), key="adm_assunto")
+
+            if a_tipo == "CIPA":
+                a_assunto = "Geral"
+                with col2:
+                    st.caption("Assunto: Geral (CIPA).")
+            else:
+                with col2:
+                    a_assunto = st.selectbox("Assunto", sorted(df[df["tipo"] == a_tipo]["assunto"].unique().tolist()), key="adm_assunto")
+
             with col3:
-                a_ano = st.selectbox("Ano", sorted(df[(df["tipo"] == a_tipo) & (df["assunto"] == a_assunto)]["ano"].unique().tolist()), key="adm_ano")
+                a_anos = sorted(df[(df["tipo"] == a_tipo) & (df["assunto"] == a_assunto)]["ano"].unique().tolist())
+                a_ano = st.selectbox("Ano", a_anos, key="adm_ano")
+
             with col4:
-                a_mes = st.selectbox("Mês", sorted(df[(df["tipo"] == a_tipo) & (df["assunto"] == a_assunto) & (df["ano"] == a_ano)]["mes"].unique().tolist()), key="adm_mes")
+                a_meses = sorted(df[(df["tipo"] == a_tipo) & (df["assunto"] == a_assunto) & (df["ano"] == a_ano)]["mes"].unique().tolist())
+                a_mes = st.selectbox("Mês", a_meses, key="adm_mes")
+
             with col5:
                 setores = sorted(df[
                     (df["tipo"] == a_tipo) &
@@ -439,7 +462,7 @@ if is_admin:
                     })
 
                     confirm = st.checkbox("Confirmar exclusão", key="adm_confirm")
-                    if st.button("🗑️ Excluir", disabled=not confirm):
+                    if st.button("🗑️ Excluir", disabled=not confirm, key="adm_excluir"):
                         delete_registro(a_tipo, a_assunto, a_ano, a_mes, a_setor)
                         st.success("✅ Registro excluído.")
                         st.rerun()
