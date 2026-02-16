@@ -12,7 +12,7 @@ APP_VERSAO = "v4.4"
 AMBIENTE = "Produção"
 
 SENHA_USUARIO = "SSTLIDER"       # senha para usuários preencherem/consultarem
-CHAVE_ADMIN = "1234"      # chave interna (admin via URL)
+CHAVE_ADMIN = "Uni06032023"      # chave interna (admin via URL)
 
 DB = "banco_v4.db"
 MESES = ["01","02","03","04","05","06","07","08","09","10","11","12"]
@@ -385,25 +385,38 @@ def header_premium(subtitulo: str):
     st.divider()
 
 # ========================
-# TELA DE LOGIN
+# SESSÃO / LOGIN
 # ========================
+if "logado" not in st.session_state:
+    st.session_state.logado = False
+if "perfil" not in st.session_state:
+    st.session_state.perfil = "usuario"  # ou "admin"
+
 if not st.session_state.logado:
     header_premium("CIPA & Brigada • acesso restrito")
+
     st.markdown("### Acesso")
+    perfil = st.radio("Tipo de acesso", ["Usuário", "Admin"], horizontal=True)
+
     senha = st.text_input("Senha", type="password", key="login_senha")
 
-    c1, c2 = st.columns([1, 3])
-    with c1:
-        if st.button("Entrar", type="primary", key="login_btn"):
-            if senha == SENHA_USUARIO:
-                st.session_state.logado = True
-                st.rerun()
-            else:
-                st.error("Senha incorreta.")
-    with c2:
-        st.caption("Dica: use a senha informada pela Unicompass. Para acesso Admin, use o link com parâmetros.")
+    if st.button("Entrar", type="primary", key="login_btn"):
+        if perfil == "Usuário" and senha == SENHA_USUARIO:
+            st.session_state.logado = True
+            st.session_state.perfil = "usuario"
+            st.rerun()
+
+        elif perfil == "Admin" and senha == CHAVE_ADMIN:
+            st.session_state.logado = True
+            st.session_state.perfil = "admin"
+            st.rerun()
+
+        else:
+            st.error("Senha incorreta.")
     st.stop()
 
+# depois do login:
+is_admin = (st.session_state.get("perfil") == "admin")
 # ========================
 # CABEÇALHO INTERNO
 # ========================
