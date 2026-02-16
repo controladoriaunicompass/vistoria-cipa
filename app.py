@@ -8,7 +8,7 @@ from datetime import datetime, date
 # CONFIGURAÇÕES
 # ========================
 APP_TITULO = "Plataforma de Inspeções - CIPA & Brigada"
-APP_VERSAO = "v4.3"
+APP_VERSAO = "v4.4"
 AMBIENTE = "Produção"
 
 SENHA_USUARIO = "SSTLIDER"       # senha para usuários preencherem/consultarem
@@ -18,9 +18,41 @@ DB = "banco_v4.db"
 MESES = ["01","02","03","04","05","06","07","08","09","10","11","12"]
 
 # ========================
-# PAGE CONFIG (TEM QUE SER ANTES DE QUALQUER st.*)
+# PAGE CONFIG (ANTES DE QUALQUER st.*)
 # ========================
 st.set_page_config(page_title=APP_TITULO, layout="wide")
+
+# ========================
+# QUERY PARAMS (compatível com versões antigas e novas)
+# ========================
+def get_qp(name: str, default: str = "") -> str:
+    """
+    Retorna query param de forma compatível com:
+    - st.query_params (novo)
+    - st.experimental_get_query_params (antigo)
+    """
+    # Streamlit novo
+    try:
+        qp = st.query_params
+        val = qp.get(name, default)
+        # pode ser lista em alguns casos
+        if isinstance(val, (list, tuple)):
+            return val[0] if val else default
+        return str(val)
+    except Exception:
+        pass
+
+    # Streamlit antigo
+    try:
+        qp = st.experimental_get_query_params()
+        val = qp.get(name, [default])
+        return val[0] if val else default
+    except Exception:
+        return default
+
+admin_flag = get_qp("admin", "")
+admin_key = get_qp("key", "")
+is_admin = (admin_flag == "1" and admin_key == CHAVE_ADMIN)
 
 # ===== Setores CIPA (24) =====
 CIPA_SETORES = [
@@ -67,11 +99,9 @@ BRIGADA_SETORES = [
     "HIDRANTE 13 - BARRACÃO LONADO (DESATIVADO)",
 ]
 
-# ============================================================
-# PERGUNTAS (AGRUPADAS POR SUBGRUPO) — MOSTRAR TODAS DE UMA VEZ
-# ============================================================
-# Formato da chave do item salvo:
-#   "<SUBGRUPO> :: <ITEM>"
+# ========================
+# CHECKLISTS (subgrupos)
+# ========================
 CHECKLISTS = {
     "CIPA": {
         "01. Área Geral de Trabalho / Instalações": [
@@ -300,11 +330,6 @@ def export_flat_csv(dff: pd.DataFrame) -> bytes:
     return x[cols].to_csv(index=False).encode("utf-8-sig")
 
 # ========================
-# MODO ADMIN
-# ========================
-is_admin = (st.query_params.get("admin") == "1" and st.query_params.get("key") == CHAVE_ADMIN)
-
-# ========================
 # SESSÃO / LOGIN
 # ========================
 if "logado" not in st.session_state:
@@ -390,11 +415,11 @@ header_premium("CIPA & Brigada")
 st.sidebar.title("Menu")
 st.sidebar.caption("Navegação do sistema")
 
-pagina = st.sidebar.radio(
-    "Ir para",
-    options=(["📝 Preencher", "📊 Dashboard"] + (["🛠️ Admin"] if is_admin else [])),
-    key="nav_pagina"
-)
+opcoes = ["📝 Preencher", "📊 Dashboard"]
+if is_admin:
+    opcoes.append("🛠️ Admin")
+
+pagina = st.sidebar.radio("Ir para", options=opcoes, key="nav_pagina")
 
 st.sidebar.divider()
 st.sidebar.caption("Admin (interno) via URL:")
@@ -429,7 +454,6 @@ if pagina == "📝 Preencher":
     st.caption("Campos com * são obrigatórios. Regra: 1 registro por Tipo + Setor + Mês + Ano (salvar atualiza).")
     st.divider()
 
-    # Perguntas: SEM PRE-SELECT (index=None) e SEM expander (tudo aberto)
     respostas = {}
     subgrupos = subgrupos_por_tipo(tipo)
 
@@ -444,7 +468,7 @@ if pagina == "📝 Preencher":
                 item,
                 ["Sim", "Não"],
                 horizontal=True,
-                index=None,  # <- SEM pré-seleção
+                index=None,
                 key=f"q_{tipo}_{ano}_{mes}_{setor}_{q_index}"
             )
             q_index += 1
@@ -502,11 +526,7 @@ elif pagina == "📊 Dashboard":
         setores_disp = sorted(base["setor"].unique().tolist())
         f_setor = st.multiselect("Setor", setores_disp, default=setores_disp, key="dash_setor")
 
-        dff = base[
-            (base["ano"].isin(f_ano)) &
-            (base["mes"].isin(f_mes)) &
-            (base["setor"].isin(f_setor))
-        ].copy()
+        dff = base[(base["ano"].isin(f_ano)) & (base["mes"].isin(f_mes)) & (base["setor"].isin(f_setor))].copy()
 
         if dff.empty:
             st.warning("Sem dados para os filtros selecionados.")
@@ -554,7 +574,11 @@ elif pagina == "📊 Dashboard":
 # ========================
 # PÁGINA: ADMIN
 # ========================
-elif pagina == "🛠️ Admin" and is_admin:
+elif pagina == "🛠️ Admin":
+    if not is_admin:
+        st.error("Acesso negado. Verifique o link Admin.")
+        st.stop()
+
     st.subheader("Admin (interno)")
     st.caption("Acesso via URL: ?admin=1&key=...")
 
@@ -584,11 +608,7 @@ elif pagina == "🛠️ Admin" and is_admin:
             a_setor = st.selectbox("Setor", setores, key="adm_setor") if setores else None
 
         if a_setor:
-            preview = base[
-                (base["ano"] == a_ano) &
-                (base["mes"] == a_mes) &
-                (base["setor"] == a_setor)
-            ].copy()
+            preview = base[(base["ano"] == a_ano) & (base["mes"] == a_mes) & (base["setor"] == a_setor)].copy()
 
             if preview.empty:
                 st.warning("Registro não encontrado.")
@@ -596,7 +616,6 @@ elif pagina == "🛠️ Admin" and is_admin:
                 r = preview.iloc[0]
                 st.json({
                     "tipo": r["tipo"],
-                    "assunto": r["assunto"],
                     "ano": int(r["ano"]),
                     "mes": r["mes"],
                     "setor": r["setor"],
@@ -612,6 +631,3 @@ elif pagina == "🛠️ Admin" and is_admin:
                     delete_registro(a_tipo, a_ano, a_mes, a_setor)
                     st.success("✅ Registro excluído.")
                     st.rerun()
-
-else:
-    st.warning("Você não tem permissão para acessar esta página.")
