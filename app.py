@@ -8,7 +8,7 @@ from datetime import datetime, date
 # CONFIGURAÇÕES
 # ========================
 APP_TITULO = "Plataforma de Inspeções - CIPA & Brigada"
-APP_VERSAO = "v4.1"
+APP_VERSAO = "v4.2"
 AMBIENTE = "Produção"
 
 SENHA_USUARIO = "SSTLIDER"       # senha para usuários preencherem/consultarem
@@ -67,18 +67,92 @@ BRIGADA_SETORES = [
     "HIDRANTE 13 - BARRACÃO LONADO (DESATIVADO)",
 ]
 
-# ===== Perguntas por TIPO e ASSUNTO =====
-# CIPA fica em assunto único "Geral" (como você pediu).
+# ============================================================
+# PERGUNTAS (AGRUPADAS POR SUBGRUPO) — MOSTRAR TODAS DE UMA VEZ
+# ============================================================
+# A ideia aqui é:
+# - Não existe mais "Assunto" selecionável para CIPA/BRIGADA.
+# - As perguntas são exibidas em blocos com subtítulo (subgrupo).
+# - No banco, salvamos assunto fixo "Geral" e "subgrupo" vai embutido na chave de cada item.
+#
+# Formato da chave do item salvo:
+#   "<SUBGRUPO> :: <ITEM>"
+#
 CHECKLISTS = {
     "CIPA": {
-        "Geral": [
-            "Superfícies de trabalho estão secas ou são antiderrapantes?",
-            "Iluminação é adequada às tarefas?",
-            "Há sinalização/placas de advertência adequadas?",
-            "Instalações prediais (pisos, paredes, teto, fechamentos) estão em boas condições?",
-            "Saídas de emergência estão demarcadas, desobstruídas e iluminadas?",
-        ]
+        "01. Área Geral de Trabalho / Instalações": [
+            "1. Superfícies de trabalho estão secas ou então são antiderrapantes.",
+            "2. Iluminação é adequada às tarefas que devem ser executadas.",
+            "3. Há sinalização, placas ou outros dispositivos adequados de advertência para alertar os empregados sobre os riscos existentes na área de trabalho.",
+            "4. Instalações Prediais (pisos, paredes, teto e fechamentos estão em boas condições).",
+        ],
+        "02. Corredores e Passadiços": [
+            "1. Demarcação (com clareza).",
+            "2. São mantidos livres de refugos e desimpedidos para o uso.",
+            "3. Buracos, obstruções ou depressões encontram-se cobertos, demarcados, ou protegidos por qualquer outra forma, de modo a evitar que representem risco à segurança.",
+            "4. Existe faixa de segurança para pedestres nas áreas de trânsito de empilhadeiras ou de outros equipamentos motorizados e há delimitação para impedir o acesso direto ao corredor de empilhadeiras.",
+            "5. Saídas de emergência estão claramente demarcadas, desimpedidas e iluminadas.",
+        ],
+        "03. Equipamentos de Proteção Individual (EPI)": [
+            "1. Existem disponíveis para cada tipo de tarefa.",
+            "2. Os empregados estão usando corretamente os EPI’s e estes são apropriados à tarefa.",
+            "3. Os EPIs que estão sendo usados apresentam-se limpos e em boas condições.",
+            "4. Existe espaço adequado para a guarda de EPIs.",
+        ],
+        "04. Armazenagem de Materiais": [
+            "1. Existe espaço adequado e apropriado para a guarda de cada tipo de material.",
+            "2. Materiais estocados não estão bloqueando passagens ou vias de escape, estão afastados 50 cm das paredes / colunas.",
+            "3. O espaço disponível no local de trabalho é adequado aos materiais que precisam ser armazenados.",
+            "4. Os materiais estão arrumados, empilhados ou estocados, afastados de paredes ou colunas, de forma a evitar que caiam, desmoronem ou fiquem desequilibrados.",
+            "5. Não existem quantidades excessivas de materiais armazenados na área de trabalho.",
+        ],
+        "05. Equipamentos, Máquinas, Ferramentas": [
+            "1. Existe espaço adequado para a armazenagem de ferramentas e outros equipamentos.",
+            "2. As ferramentas e equipamentos danificados são retirados de serviço.",
+            "3. As ferramentas são transportadas adequadamente.",
+            "4. Há espaço adequado em torno das máquinas para permitir operação e movimentação segura de materiais e pessoal.",
+            "5. Todos os equipamentos fixos estão presos no piso de modo a impedir que se desloquem durante o uso.",
+            "6. Todos os pontos de compressão/aperto e todas as partes cortantes/giratórias ou móveis das máquinas estão equipados com guardas de proteção.",
+            "7. Guardas de proteção não permitem acesso de partes do corpo junto à área de risco.",
+            "8. Dispositivos de proteção contra quedas são inspecionados e utilizados para trabalho em altura elevada (acima de 2 m).",
+            "9. Todas as fontes de energia possuem sistema sinalizado e adequado para bloqueio.",
+            "10. Quando as máquinas estão em manutenção, limpeza, etc. - Estão bloqueadas e sinalizadas?",
+        ],
+        "06. Instalações Elétricas": [
+            "1. As áreas diante dos quadros elétricos e de controles são mantidas desobstruídas até uma distância mínima de 1 metro.",
+            "2. Usa cabos / fiação elétrica e extensão temporária em instalações permanentes.",
+            "3. Os cabos/fios de extensão temporária não oferecem risco de tropeções na área de trabalho.",
+            "4. Os fios elétricos e cabos estão protegidos por eletrodutos, conduletes, etc..",
+        ],
+        "07. Housekeeping - Serviço de limpeza": [
+            "1. A área está arrumada, limpa, organizada e livre de refugos.",
+            "2. Se encontra acúmulo de sujeira, poeira ou outros materiais.",
+            "3. Há risco de escorregões, tropeções ou riscos de queda na área de trabalho.",
+        ],
+        "08. Operações e Processos de Alto Risco (TRABALHO EM ALTURA)": [
+            "1. Existe um inventário e procedimentos para a execução de operações e processos de alto risco.",
+            "2. Apenas o pessoal treinado executa as atividades de alto risco.",
+            "3. As atividades de alto risco estão sendo executadas conforme procedimentos.",
+            "4. Trabalhos em altura, espaço confinado, equipamento energizado, ou de abertura de linha têm “Permissão de Trabalho”, devidamente preenchida, válida e assinada pelo emitente e executantes.",
+            "5. Os trabalhos especiais estão sendo realizados conforme orientação das Permissões de Trabalho.",
+            "6. Os trabalhos especiais estão gerando algum risco não identificado nas Permissões de Trabalho.",
+        ],
+        "09. Treinamento": [
+            "1. Os empregados passaram por treinamento adequado em relação às questões de saúde e segurança.",
+            "2. Existe meios de comprovação dos treinamentos.",
+            "3. Os empregados têm plena consciência dos riscos envolvidos na tarefa que está sendo executada.",
+            "4. As ações dos empregados demonstram terem recebido um nível de treinamento adequado.",
+        ],
+        "10. Equipamentos com Força Motriz Própria e Outros Equipamentos para Transporte": [
+            "1. As empilhadeiras e outros são adequados e estão em boas condições de uso.",
+            "2. Carrinhos manuais estão em boas condições de uso.",
+            "3. Os equipamentos com força motriz própria são inspecionados antes do uso diariamente (Verificar Check List).",
+            "4. Os equipamentos para transporte de materiais possuem identificação da capacidade máxima de carga.",
+            "5. Cabos de aço, cintas e outros acessórios estão em boas condições.",
+            "6. Os operadores de equipamentos com força motriz própria possuem treinamento e são autorizados/credenciados.",
+        ],
     },
+
     "BRIGADA": {
         "Instalações Elétricas": [
             "Há Instalações com fiação aparente?",
@@ -127,14 +201,13 @@ CHECKLISTS = {
     }
 }
 
+ASSUNTO_FIXO = "Geral"  # gravamos no banco como "Geral" para ambos os tipos
+
 def setores_por_tipo(tipo: str):
     return CIPA_SETORES if tipo == "CIPA" else BRIGADA_SETORES
 
-def assuntos_por_tipo(tipo: str):
+def subgrupos_por_tipo(tipo: str):
     return list(CHECKLISTS[tipo].keys())
-
-def perguntas_por_tipo_assunto(tipo: str, assunto: str):
-    return CHECKLISTS[tipo][assunto]
 
 # ========================
 # BANCO (SQLite)
@@ -179,11 +252,11 @@ def upsert_registro(tipo, assunto, ano, mes, setor, data_vistoria, responsavel_a
     ))
     conn.commit()
 
-def delete_registro(tipo, assunto, ano, mes, setor):
+def delete_registro(tipo, ano, mes, setor):
     c.execute("""
         DELETE FROM registros
         WHERE tipo=? AND assunto=? AND ano=? AND mes=? AND setor=?
-    """, (tipo, assunto, int(ano), str(mes), str(setor)))
+    """, (tipo, ASSUNTO_FIXO, int(ano), str(mes), str(setor)))
     conn.commit()
 
 def load_df():
@@ -197,30 +270,50 @@ def load_df():
     df["mes_ano"] = df["ano"].astype(str) + "-" + df["mes"]
     return df
 
-def export_flat_csv(dff: pd.DataFrame) -> bytes:
+def explode_respostas(dff: pd.DataFrame) -> pd.DataFrame:
+    """Explode respostas em linhas (para gráfico por subgrupo)."""
     rows = []
     for _, r in dff.iterrows():
-        for item, resp in r["respostas"].items():
+        resp_dict = r["respostas"] if isinstance(r["respostas"], dict) else {}
+        for item_key, resp in resp_dict.items():
+            if " :: " in item_key:
+                subgrupo, item = item_key.split(" :: ", 1)
+            else:
+                subgrupo, item = "(Sem subgrupo)", item_key
             rows.append({
-                "created_at": r["created_at"],
                 "tipo": r["tipo"],
-                "assunto": r["assunto"],
                 "ano": r["ano"],
                 "mes": r["mes"],
+                "mes_ano": r["mes_ano"],
                 "setor": r["setor"],
                 "data_vistoria": r["data_vistoria"],
                 "responsavel_area": r["responsavel_area"],
                 "inspecionado_por": r["inspecionado_por"],
+                "subgrupo": subgrupo,
                 "item": item,
-                "resposta": resp,
+                "resposta": resp
             })
-    flat = pd.DataFrame(rows)
-    return flat.to_csv(index=False).encode("utf-8-sig")
+    x = pd.DataFrame(rows)
+    if x.empty:
+        return x
+    x["sim"] = (x["resposta"] == "Sim").astype(int)
+    x["nao"] = (x["resposta"] == "Não").astype(int)
+    return x
+
+def export_flat_csv(dff: pd.DataFrame) -> bytes:
+    x = explode_respostas(dff)
+    if x.empty:
+        return pd.DataFrame([]).to_csv(index=False).encode("utf-8-sig")
+    cols = [
+        "tipo","subgrupo","item","resposta",
+        "ano","mes","mes_ano","setor",
+        "data_vistoria","responsavel_area","inspecionado_por"
+    ]
+    return x[cols].to_csv(index=False).encode("utf-8-sig")
 
 # ========================
 # MODO ADMIN (interno via URL)
 # ========================
-# Ex.: https://SEUAPP.streamlit.app/?admin=1&key=Uni06032023
 is_admin = (st.query_params.get("admin") == "1" and st.query_params.get("key") == CHAVE_ADMIN)
 
 # ========================
@@ -229,16 +322,20 @@ is_admin = (st.query_params.get("admin") == "1" and st.query_params.get("key") =
 if "logado" not in st.session_state:
     st.session_state.logado = False
 
+def show_logo(width=150):
+    # tenta logo.png e Logo.png (case-sensitive no Streamlit Cloud)
+    for name in ["logo.png", "Logo.png"]:
+        try:
+            st.image(name, width=width)
+            return
+        except Exception:
+            pass
+
 def header_premium(subtitulo: str):
-    # Cabeçalho "enterprise": logo + título + subtítulo + infos + logout
     col_logo, col_title, col_info, col_logout = st.columns([1.2, 5, 2.2, 1.2])
 
     with col_logo:
-        # Mostra o logo se existir
-        try:
-            st.image("logo.png", width=150)
-        except Exception:
-            st.write("")
+        show_logo(width=150)
 
     with col_title:
         st.markdown(
@@ -276,7 +373,7 @@ def header_premium(subtitulo: str):
     st.divider()
 
 # ========================
-# TELA DE LOGIN (enterprise)
+# TELA DE LOGIN
 # ========================
 if not st.session_state.logado:
     header_premium("CIPA & Brigada • acesso restrito")
@@ -303,7 +400,7 @@ if not st.session_state.logado:
 header_premium("CIPA & Brigada")
 
 # ========================
-# MENU LATERAL (ENTERPRISE)
+# MENU LATERAL
 # ========================
 st.sidebar.title("Menu")
 st.sidebar.caption("Navegação do sistema")
@@ -319,7 +416,7 @@ st.sidebar.caption("Admin (interno) via URL:")
 st.sidebar.code("?admin=1&key=********", language="text")
 
 # ========================
-# PÁGINA: PREENCHER
+# PÁGINA: PREENCHER (MOSTRA TODAS AS PERGUNTAS)
 # ========================
 if pagina == "📝 Preencher":
     st.subheader("Preencher Checklist")
@@ -327,14 +424,6 @@ if pagina == "📝 Preencher":
     colA, colB = st.columns([2, 3])
     with colA:
         tipo = st.radio("Tipo", ["CIPA", "BRIGADA"], horizontal=True, key="pre_tipo")
-
-    # CIPA sem assunto (fixo)
-    if tipo == "CIPA":
-        assunto = "Geral"
-        st.caption("Assunto: Geral (CIPA não segmentado por assunto).")
-    else:
-        with colB:
-            assunto = st.selectbox("Assunto", assuntos_por_tipo(tipo), key="pre_assunto")
 
     col1, col2, col3, col4 = st.columns([1, 1, 4, 2])
     with col1:
@@ -352,13 +441,39 @@ if pagina == "📝 Preencher":
     with col6:
         inspecionado_por = st.text_input("Inspecionado por *", key="pre_insp_por")
 
-    st.caption("Campos com * são obrigatórios. Regra: 1 registro por Tipo + Assunto + Setor + Mês + Ano (salvar atualiza).")
+    st.caption("Campos com * são obrigatórios. Regra: 1 registro por Tipo + Setor + Mês + Ano (salvar atualiza).")
     st.divider()
 
-    perguntas = perguntas_por_tipo_assunto(tipo, assunto)
+    # Mostra todas as perguntas (agrupadas por subgrupo)
     respostas = {}
-    for p in perguntas:
-        respostas[p] = st.radio(p, ["Sim", "Não"], horizontal=True, key=f"q_{tipo}_{assunto}_{p}")
+    subgrupos = subgrupos_por_tipo(tipo)
+
+    # opcional: colapsar por blocos
+    usar_expander = st.checkbox("Exibir subgrupos recolhíveis (mais limpo)", value=False, key="pre_expander")
+
+    q_index = 0
+    for sg in subgrupos:
+        itens = CHECKLISTS[tipo][sg]
+
+        if usar_expander:
+            container = st.expander(sg, expanded=(sg == subgrupos[0]))
+        else:
+            st.markdown(f"### {sg}")
+            container = st
+
+        with container:
+            for item in itens:
+                item_key = f"{sg} :: {item}"
+                # key curta e única
+                respostas[item_key] = st.radio(
+                    item,
+                    ["Sim", "Não"],
+                    horizontal=True,
+                    key=f"q_{tipo}_{ano}_{mes}_{setor}_{q_index}"
+                )
+                q_index += 1
+
+        st.divider()
 
     if st.button("💾 Salvar/Atualizar", type="primary", key="pre_salvar"):
         if not responsavel_area.strip():
@@ -368,7 +483,7 @@ if pagina == "📝 Preencher":
         else:
             upsert_registro(
                 tipo=tipo,
-                assunto=assunto,
+                assunto=ASSUNTO_FIXO,
                 ano=ano,
                 mes=mes,
                 setor=setor,
@@ -389,38 +504,28 @@ elif pagina == "📊 Dashboard":
     if df.empty:
         st.info("Ainda não há registros.")
     else:
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3 = st.columns([1.2, 2.4, 2.4])
 
         with c1:
             f_tipo = st.selectbox("Tipo", sorted(df["tipo"].unique().tolist()), key="dash_tipo")
 
-        # CIPA sem assunto (fixo)
-        if f_tipo == "CIPA":
-            f_assunto = "Geral"
-            with c2:
-                st.caption("Assunto: Geral (CIPA).")
-        else:
-            with c2:
-                assuntos = sorted(df[df["tipo"] == f_tipo]["assunto"].unique().tolist())
-                f_assunto = st.selectbox("Assunto", assuntos, key="dash_assunto")
+        base = df[df["tipo"] == f_tipo].copy()
 
-        with c3:
-            anos = sorted(df[(df["tipo"] == f_tipo) & (df["assunto"] == f_assunto)]["ano"].unique().tolist())
+        with c2:
+            anos = sorted(base["ano"].unique().tolist())
             f_ano = st.multiselect("Ano", anos, default=anos, key="dash_ano")
 
-        with c4:
-            meses = sorted(df[(df["tipo"] == f_tipo) & (df["assunto"] == f_assunto)]["mes"].unique().tolist())
+        with c3:
+            meses = sorted(base["mes"].unique().tolist())
             f_mes = st.multiselect("Mês", meses, default=meses, key="dash_mes")
 
-        setores_disp = sorted(df[(df["tipo"] == f_tipo) & (df["assunto"] == f_assunto)]["setor"].unique().tolist())
+        setores_disp = sorted(base["setor"].unique().tolist())
         f_setor = st.multiselect("Setor", setores_disp, default=setores_disp, key="dash_setor")
 
-        dff = df[
-            (df["tipo"] == f_tipo) &
-            (df["assunto"] == f_assunto) &
-            (df["ano"].isin(f_ano)) &
-            (df["mes"].isin(f_mes)) &
-            (df["setor"].isin(f_setor))
+        dff = base[
+            (base["ano"].isin(f_ano)) &
+            (base["mes"].isin(f_mes)) &
+            (base["setor"].isin(f_setor))
         ].copy()
 
         if dff.empty:
@@ -443,6 +548,14 @@ elif pagina == "📊 Dashboard":
             graf_setor = dff.groupby("setor")[["sim", "nao"]].sum().sort_values("nao", ascending=False)
             st.bar_chart(graf_setor)
 
+            st.write("### Conformidade x Não conformidade por Subgrupo")
+            x = explode_respostas(dff)
+            if x.empty:
+                st.info("Sem itens explodidos.")
+            else:
+                graf_sg = x.groupby("subgrupo")[["sim", "nao"]].sum().sort_values("nao", ascending=False)
+                st.bar_chart(graf_sg)
+
             st.write("### Evolução por competência (mês/ano)")
             evol = dff.groupby("mes_ano")[["sim", "nao"]].sum().sort_index()
             st.line_chart(evol)
@@ -453,7 +566,7 @@ elif pagina == "📊 Dashboard":
             st.download_button(
                 "⬇️ Baixar CSV (filtrado)",
                 data=csv_bytes,
-                file_name=f"inspecoes_{f_tipo}_{f_assunto}.csv".replace(" ", "_"),
+                file_name=f"inspecoes_{f_tipo}.csv".replace(" ", "_"),
                 mime="text/csv",
                 key="dash_export_csv"
             )
@@ -469,49 +582,32 @@ elif pagina == "🛠️ Admin" and is_admin:
     if df.empty:
         st.info("Sem registros.")
     else:
-        st.write("### Excluir registro (por Tipo / Assunto / Competência / Setor)")
+        st.write("### Excluir registro (por Tipo / Competência / Setor)")
 
-        col1, col2, col3, col4, col5 = st.columns([1.2, 2.2, 1, 1, 3])
+        col1, col2, col3, col4 = st.columns([1.2, 1.2, 1.2, 4])
 
         with col1:
             a_tipo = st.selectbox("Tipo", sorted(df["tipo"].unique().tolist()), key="adm_tipo")
 
-        if a_tipo == "CIPA":
-            a_assunto = "Geral"
-            with col2:
-                st.caption("Assunto: Geral (CIPA).")
-        else:
-            with col2:
-                a_assunto = st.selectbox(
-                    "Assunto",
-                    sorted(df[df["tipo"] == a_tipo]["assunto"].unique().tolist()),
-                    key="adm_assunto"
-                )
+        base = df[df["tipo"] == a_tipo].copy()
 
-        with col3:
-            a_anos = sorted(df[(df["tipo"] == a_tipo) & (df["assunto"] == a_assunto)]["ano"].unique().tolist())
+        with col2:
+            a_anos = sorted(base["ano"].unique().tolist())
             a_ano = st.selectbox("Ano", a_anos, key="adm_ano")
 
-        with col4:
-            a_meses = sorted(df[(df["tipo"] == a_tipo) & (df["assunto"] == a_assunto) & (df["ano"] == a_ano)]["mes"].unique().tolist())
+        with col3:
+            a_meses = sorted(base[base["ano"] == a_ano]["mes"].unique().tolist())
             a_mes = st.selectbox("Mês", a_meses, key="adm_mes")
 
-        with col5:
-            setores = sorted(df[
-                (df["tipo"] == a_tipo) &
-                (df["assunto"] == a_assunto) &
-                (df["ano"] == a_ano) &
-                (df["mes"] == a_mes)
-            ]["setor"].unique().tolist())
+        with col4:
+            setores = sorted(base[(base["ano"] == a_ano) & (base["mes"] == a_mes)]["setor"].unique().tolist())
             a_setor = st.selectbox("Setor", setores, key="adm_setor") if setores else None
 
         if a_setor:
-            preview = df[
-                (df["tipo"] == a_tipo) &
-                (df["assunto"] == a_assunto) &
-                (df["ano"] == a_ano) &
-                (df["mes"] == a_mes) &
-                (df["setor"] == a_setor)
+            preview = base[
+                (base["ano"] == a_ano) &
+                (base["mes"] == a_mes) &
+                (base["setor"] == a_setor)
             ].copy()
 
             if preview.empty:
@@ -533,7 +629,7 @@ elif pagina == "🛠️ Admin" and is_admin:
 
                 confirm = st.checkbox("Confirmar exclusão", key="adm_confirm")
                 if st.button("🗑️ Excluir", disabled=not confirm, key="adm_excluir"):
-                    delete_registro(a_tipo, a_assunto, a_ano, a_mes, a_setor)
+                    delete_registro(a_tipo, a_ano, a_mes, a_setor)
                     st.success("✅ Registro excluído.")
                     st.rerun()
 
