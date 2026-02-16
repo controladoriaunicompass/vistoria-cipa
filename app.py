@@ -12,7 +12,7 @@ APP_VERSAO = "v4.4"
 AMBIENTE = "Produção"
 
 SENHA_USUARIO = "SSTLIDER"       # senha para usuários preencherem/consultarem
-CHAVE_ADMIN = "Uni06032023"      # chave interna (admin via URL)
+CHAVE_ADMIN = "1234"      # chave interna (admin via URL)
 
 DB = "banco_v4.db"
 MESES = ["01","02","03","04","05","06","07","08","09","10","11","12"]
