@@ -8,7 +8,7 @@ from datetime import datetime, date
 # CONFIGURAÇÕES
 # ========================
 APP_TITULO = "Plataforma de Inspeções - CIPA & Brigada"
-APP_VERSAO = "v4.2"
+APP_VERSAO = "v4.3"
 AMBIENTE = "Produção"
 
 SENHA_USUARIO = "SSTLIDER"       # senha para usuários preencherem/consultarem
@@ -70,14 +70,8 @@ BRIGADA_SETORES = [
 # ============================================================
 # PERGUNTAS (AGRUPADAS POR SUBGRUPO) — MOSTRAR TODAS DE UMA VEZ
 # ============================================================
-# A ideia aqui é:
-# - Não existe mais "Assunto" selecionável para CIPA/BRIGADA.
-# - As perguntas são exibidas em blocos com subtítulo (subgrupo).
-# - No banco, salvamos assunto fixo "Geral" e "subgrupo" vai embutido na chave de cada item.
-#
 # Formato da chave do item salvo:
 #   "<SUBGRUPO> :: <ITEM>"
-#
 CHECKLISTS = {
     "CIPA": {
         "01. Área Geral de Trabalho / Instalações": [
@@ -152,7 +146,6 @@ CHECKLISTS = {
             "6. Os operadores de equipamentos com força motriz própria possuem treinamento e são autorizados/credenciados.",
         ],
     },
-
     "BRIGADA": {
         "Instalações Elétricas": [
             "Há Instalações com fiação aparente?",
@@ -201,7 +194,7 @@ CHECKLISTS = {
     }
 }
 
-ASSUNTO_FIXO = "Geral"  # gravamos no banco como "Geral" para ambos os tipos
+ASSUNTO_FIXO = "Geral"
 
 def setores_por_tipo(tipo: str):
     return CIPA_SETORES if tipo == "CIPA" else BRIGADA_SETORES
@@ -271,7 +264,6 @@ def load_df():
     return df
 
 def explode_respostas(dff: pd.DataFrame) -> pd.DataFrame:
-    """Explode respostas em linhas (para gráfico por subgrupo)."""
     rows = []
     for _, r in dff.iterrows():
         resp_dict = r["respostas"] if isinstance(r["respostas"], dict) else {}
@@ -304,15 +296,11 @@ def export_flat_csv(dff: pd.DataFrame) -> bytes:
     x = explode_respostas(dff)
     if x.empty:
         return pd.DataFrame([]).to_csv(index=False).encode("utf-8-sig")
-    cols = [
-        "tipo","subgrupo","item","resposta",
-        "ano","mes","mes_ano","setor",
-        "data_vistoria","responsavel_area","inspecionado_por"
-    ]
+    cols = ["tipo","subgrupo","item","resposta","ano","mes","mes_ano","setor","data_vistoria","responsavel_area","inspecionado_por"]
     return x[cols].to_csv(index=False).encode("utf-8-sig")
 
 # ========================
-# MODO ADMIN (interno via URL)
+# MODO ADMIN
 # ========================
 is_admin = (st.query_params.get("admin") == "1" and st.query_params.get("key") == CHAVE_ADMIN)
 
@@ -323,8 +311,7 @@ if "logado" not in st.session_state:
     st.session_state.logado = False
 
 def show_logo(width=150):
-    # tenta logo.png e Logo.png (case-sensitive no Streamlit Cloud)
-    for name in ["logo.png", "Logo.png"]:
+    for name in ["logo.png", "Logo.png", "Logo Oficial.png", "LogoOficial.png"]:
         try:
             st.image(name, width=width)
             return
@@ -377,7 +364,6 @@ def header_premium(subtitulo: str):
 # ========================
 if not st.session_state.logado:
     header_premium("CIPA & Brigada • acesso restrito")
-
     st.markdown("### Acesso")
     senha = st.text_input("Senha", type="password", key="login_senha")
 
@@ -391,7 +377,6 @@ if not st.session_state.logado:
                 st.error("Senha incorreta.")
     with c2:
         st.caption("Dica: use a senha informada pela Unicompass. Para acesso Admin, use o link com parâmetros.")
-
     st.stop()
 
 # ========================
@@ -416,7 +401,7 @@ st.sidebar.caption("Admin (interno) via URL:")
 st.sidebar.code("?admin=1&key=********", language="text")
 
 # ========================
-# PÁGINA: PREENCHER (MOSTRA TODAS AS PERGUNTAS)
+# PÁGINA: PREENCHER
 # ========================
 if pagina == "📝 Preencher":
     st.subheader("Preencher Checklist")
@@ -444,34 +429,25 @@ if pagina == "📝 Preencher":
     st.caption("Campos com * são obrigatórios. Regra: 1 registro por Tipo + Setor + Mês + Ano (salvar atualiza).")
     st.divider()
 
-    # Mostra todas as perguntas (agrupadas por subgrupo)
+    # Perguntas: SEM PRE-SELECT (index=None) e SEM expander (tudo aberto)
     respostas = {}
     subgrupos = subgrupos_por_tipo(tipo)
-
-    # opcional: colapsar por blocos
-    usar_expander = st.checkbox("Exibir subgrupos recolhíveis (mais limpo)", value=False, key="pre_expander")
 
     q_index = 0
     for sg in subgrupos:
         itens = CHECKLISTS[tipo][sg]
+        st.markdown(f"### {sg}")
 
-        if usar_expander:
-            container = st.expander(sg, expanded=(sg == subgrupos[0]))
-        else:
-            st.markdown(f"### {sg}")
-            container = st
-
-        with container:
-            for item in itens:
-                item_key = f"{sg} :: {item}"
-                # key curta e única
-                respostas[item_key] = st.radio(
-                    item,
-                    ["Sim", "Não"],
-                    horizontal=True,
-                    key=f"q_{tipo}_{ano}_{mes}_{setor}_{q_index}"
-                )
-                q_index += 1
+        for item in itens:
+            item_key = f"{sg} :: {item}"
+            respostas[item_key] = st.radio(
+                item,
+                ["Sim", "Não"],
+                horizontal=True,
+                index=None,  # <- SEM pré-seleção
+                key=f"q_{tipo}_{ano}_{mes}_{setor}_{q_index}"
+            )
+            q_index += 1
 
         st.divider()
 
@@ -481,18 +457,22 @@ if pagina == "📝 Preencher":
         elif not inspecionado_por.strip():
             st.error("Informe quem realizou a inspeção (Inspecionado por).")
         else:
-            upsert_registro(
-                tipo=tipo,
-                assunto=ASSUNTO_FIXO,
-                ano=ano,
-                mes=mes,
-                setor=setor,
-                data_vistoria=data_vistoria.isoformat(),
-                responsavel_area=responsavel_area.strip(),
-                inspecionado_por=inspecionado_por.strip(),
-                respostas_dict=respostas
-            )
-            st.success("✅ Registro salvo/atualizado!")
+            faltando = [k for k, v in respostas.items() if v is None]
+            if faltando:
+                st.error(f"⚠️ Existem {len(faltando)} respostas sem preenchimento. Responda todas as perguntas para salvar.")
+            else:
+                upsert_registro(
+                    tipo=tipo,
+                    assunto=ASSUNTO_FIXO,
+                    ano=ano,
+                    mes=mes,
+                    setor=setor,
+                    data_vistoria=data_vistoria.isoformat(),
+                    responsavel_area=responsavel_area.strip(),
+                    inspecionado_por=inspecionado_por.strip(),
+                    respostas_dict=respostas
+                )
+                st.success("✅ Registro salvo/atualizado!")
 
 # ========================
 # PÁGINA: DASHBOARD
