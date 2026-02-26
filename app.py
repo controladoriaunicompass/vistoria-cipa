@@ -8,11 +8,11 @@ from datetime import datetime, date
 # CONFIGURAÇÕES
 # ========================
 APP_TITULO = "Plataforma de Inspeções - CIPA & Brigada"
-APP_VERSAO = "v4.4"
+APP_VERSAO = "v4.5"
 AMBIENTE = "Produção"
 
 SENHA_USUARIO = "SSTLIDER"       # senha para usuários preencherem/consultarem
-CHAVE_ADMIN = "Uni06032023"      # chave interna (admin via URL)
+CHAVE_ADMIN = "Uni06032023"      # chave interna (admin via URL e/ou login)
 
 DB = "banco_v4.db"
 MESES = ["01","02","03","04","05","06","07","08","09","10","11","12"]
@@ -35,7 +35,6 @@ def get_qp(name: str, default: str = "") -> str:
     try:
         qp = st.query_params
         val = qp.get(name, default)
-        # pode ser lista em alguns casos
         if isinstance(val, (list, tuple)):
             return val[0] if val else default
         return str(val)
@@ -52,9 +51,11 @@ def get_qp(name: str, default: str = "") -> str:
 
 admin_flag = get_qp("admin", "")
 admin_key = get_qp("key", "")
-is_admin = (admin_flag == "1" and admin_key == CHAVE_ADMIN)
+is_admin_url = (admin_flag == "1" and admin_key == CHAVE_ADMIN)
 
-# ===== Setores CIPA (24) =====
+# ========================
+# SETORES
+# ========================
 CIPA_SETORES = [
     "Recebimento e Estoque de Chapas",
     "Laboratório, Estoque de chapas Não conforme, Coletor de Aparas e Acessórios",
@@ -82,7 +83,6 @@ CIPA_SETORES = [
     "Administrativo piso superior",
 ]
 
-# ===== Setores BRIGADA (Hidrantes) =====
 BRIGADA_SETORES = [
     "HIDRANTE 1 - DDP",
     "HIDRANTE 2 - CLICHERIA",
@@ -286,22 +286,51 @@ def load_df():
     df = pd.read_sql("SELECT * FROM registros", conn)
     if df.empty:
         return df
+
     df["respostas"] = df["respostas_json"].apply(json.loads)
-    df["sim"] = df["respostas"].apply(lambda r: sum(1 for v in r.values() if v == "Sim"))
-    df["nao"] = df["respostas"].apply(lambda r: sum(1 for v in r.values() if v == "Não"))
-    df["total_itens"] = df["respostas"].apply(lambda r: len(r))
+
+    def count_resp(r, target):
+        # r: {item_key: {"resp": "...", "obs": "..."} }  (novo)
+        # ou r: {item_key: "Sim"/"Não"} (antigo)
+        if not isinstance(r, dict):
+            return 0
+        n = 0
+        for v in r.values():
+            if isinstance(v, dict):
+                if v.get("resp") == target:
+                    n += 1
+            else:
+                if v == target:
+                    n += 1
+        return n
+
+    df["sim"] = df["respostas"].apply(lambda r: count_resp(r, "Sim"))
+    df["nao"] = df["respostas"].apply(lambda r: count_resp(r, "Não"))
+
+    # KPI ignora "Não aplicável"
+    df["total_kpi"] = df["sim"] + df["nao"]
     df["mes_ano"] = df["ano"].astype(str) + "-" + df["mes"]
     return df
 
 def explode_respostas(dff: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for _, r in dff.iterrows():
-        resp_dict = r["respostas"] if isinstance(r["respostas"], dict) else {}
-        for item_key, resp in resp_dict.items():
+        resp_dict = r["respostas"] if isinstance(r.get("respostas"), dict) else {}
+
+        for item_key, v in resp_dict.items():
             if " :: " in item_key:
                 subgrupo, item = item_key.split(" :: ", 1)
             else:
                 subgrupo, item = "(Sem subgrupo)", item_key
+
+            # compatibilidade
+            if isinstance(v, dict):
+                resp = v.get("resp")
+                obs = v.get("obs", "")
+            else:
+                resp = v
+                obs = ""
+
             rows.append({
                 "tipo": r["tipo"],
                 "ano": r["ano"],
@@ -313,20 +342,29 @@ def explode_respostas(dff: pd.DataFrame) -> pd.DataFrame:
                 "inspecionado_por": r["inspecionado_por"],
                 "subgrupo": subgrupo,
                 "item": item,
-                "resposta": resp
+                "resposta": resp,
+                "observacao": obs
             })
+
     x = pd.DataFrame(rows)
     if x.empty:
         return x
+
+    # gráficos e KPI usam só sim/nao; mas o CSV pode ter N/A
     x["sim"] = (x["resposta"] == "Sim").astype(int)
     x["nao"] = (x["resposta"] == "Não").astype(int)
+    x["na"]  = (x["resposta"] == "Não aplicável").astype(int)
     return x
 
 def export_flat_csv(dff: pd.DataFrame) -> bytes:
     x = explode_respostas(dff)
     if x.empty:
         return pd.DataFrame([]).to_csv(index=False).encode("utf-8-sig")
-    cols = ["tipo","subgrupo","item","resposta","ano","mes","mes_ano","setor","data_vistoria","responsavel_area","inspecionado_por"]
+
+    cols = [
+        "tipo","subgrupo","item","resposta","observacao",
+        "ano","mes","mes_ano","setor","data_vistoria","responsavel_area","inspecionado_por"
+    ]
     return x[cols].to_csv(index=False).encode("utf-8-sig")
 
 # ========================
@@ -334,6 +372,14 @@ def export_flat_csv(dff: pd.DataFrame) -> bytes:
 # ========================
 if "logado" not in st.session_state:
     st.session_state.logado = False
+if "perfil" not in st.session_state:
+    st.session_state.perfil = "usuario"  # ou "admin"
+
+# Auto-login admin via URL (se quiser usar link interno)
+if is_admin_url and not st.session_state.logado:
+    st.session_state.logado = True
+    st.session_state.perfil = "admin"
+    st.rerun()
 
 def show_logo(width=150):
     for name in ["logo.png", "Logo.png", "Logo Oficial.png", "LogoOficial.png"]:
@@ -343,7 +389,7 @@ def show_logo(width=150):
         except Exception:
             pass
 
-def header_premium(subtitulo: str):
+def header_premium(subtitulo: str, is_admin: bool):
     col_logo, col_title, col_info, col_logout = st.columns([1.2, 5, 2.2, 1.2])
 
     with col_logo:
@@ -380,24 +426,19 @@ def header_premium(subtitulo: str):
     with col_logout:
         if st.button("Sair", key="btn_logout"):
             st.session_state.logado = False
+            st.session_state.perfil = "usuario"
             st.rerun()
 
     st.divider()
 
 # ========================
-# SESSÃO / LOGIN
+# LOGIN SCREEN
 # ========================
-if "logado" not in st.session_state:
-    st.session_state.logado = False
-if "perfil" not in st.session_state:
-    st.session_state.perfil = "usuario"  # ou "admin"
-
 if not st.session_state.logado:
-    header_premium("CIPA & Brigada • acesso restrito")
+    header_premium("CIPA & Brigada • acesso restrito", is_admin=False)
 
     st.markdown("### Acesso")
     perfil = st.radio("Tipo de acesso", ["Usuário", "Admin"], horizontal=True)
-
     senha = st.text_input("Senha", type="password", key="login_senha")
 
     if st.button("Entrar", type="primary", key="login_btn"):
@@ -405,22 +446,21 @@ if not st.session_state.logado:
             st.session_state.logado = True
             st.session_state.perfil = "usuario"
             st.rerun()
-
         elif perfil == "Admin" and senha == CHAVE_ADMIN:
             st.session_state.logado = True
             st.session_state.perfil = "admin"
             st.rerun()
-
         else:
             st.error("Senha incorreta.")
     st.stop()
 
 # depois do login:
 is_admin = (st.session_state.get("perfil") == "admin")
+
 # ========================
 # CABEÇALHO INTERNO
 # ========================
-header_premium("CIPA & Brigada")
+header_premium("CIPA & Brigada", is_admin=is_admin)
 
 # ========================
 # MENU LATERAL
@@ -435,8 +475,8 @@ if is_admin:
 pagina = st.sidebar.radio("Ir para", options=opcoes, key="nav_pagina")
 
 st.sidebar.divider()
-st.sidebar.caption("Admin (interno) via URL:")
-st.sidebar.code("?admin=1&key=********", language="text")
+st.sidebar.caption("Admin (interno) via URL habilitado.")
+st.sidebar.caption("Ex.: ?admin=1&key=*****")
 
 # ========================
 # PÁGINA: PREENCHER
@@ -444,25 +484,26 @@ st.sidebar.code("?admin=1&key=********", language="text")
 if pagina == "📝 Preencher":
     st.subheader("Preencher Checklist")
 
-    colA, colB = st.columns([2, 3])
-    with colA:
-        tipo = st.radio("Tipo", ["CIPA", "BRIGADA"], horizontal=True, key="pre_tipo")
+    with st.container():
+        colA, colB = st.columns([2, 3])
+        with colA:
+            tipo = st.radio("Tipo", ["CIPA", "BRIGADA"], horizontal=True, key="pre_tipo")
 
-    col1, col2, col3, col4 = st.columns([1, 1, 4, 2])
-    with col1:
-        ano = st.number_input("Ano", min_value=2020, max_value=2100, value=datetime.now().year, step=1, key="pre_ano")
-    with col2:
-        mes = st.selectbox("Mês", MESES, index=MESES.index(f"{datetime.now().month:02d}"), key="pre_mes")
-    with col3:
-        setor = st.selectbox("Setor", setores_por_tipo(tipo), key="pre_setor")
-    with col4:
-        data_vistoria = st.date_input("Data", value=date.today(), key="pre_data")
+        col1, col2, col3, col4 = st.columns([1, 1, 4, 2])
+        with col1:
+            ano = st.number_input("Ano", min_value=2020, max_value=2100, value=datetime.now().year, step=1, key="pre_ano")
+        with col2:
+            mes = st.selectbox("Mês", MESES, index=MESES.index(f"{datetime.now().month:02d}"), key="pre_mes")
+        with col3:
+            setor = st.selectbox("Setor", setores_por_tipo(tipo), key="pre_setor")
+        with col4:
+            data_vistoria = st.date_input("Data", value=date.today(), key="pre_data")
 
-    col5, col6 = st.columns(2)
-    with col5:
-        responsavel_area = st.text_input("Responsável da área *", key="pre_resp_area")
-    with col6:
-        inspecionado_por = st.text_input("Inspecionado por *", key="pre_insp_por")
+        col5, col6 = st.columns(2)
+        with col5:
+            responsavel_area = st.text_input("Responsável da área *", key="pre_resp_area")
+        with col6:
+            inspecionado_por = st.text_input("Inspecionado por *", key="pre_insp_por")
 
     st.caption("Campos com * são obrigatórios. Regra: 1 registro por Tipo + Setor + Mês + Ano (salvar atualiza).")
     st.divider()
@@ -477,13 +518,26 @@ if pagina == "📝 Preencher":
 
         for item in itens:
             item_key = f"{sg} :: {item}"
-            respostas[item_key] = st.radio(
-                item,
-                ["Sim", "Não"],
-                horizontal=True,
-                index=None,
-                key=f"q_{tipo}_{ano}_{mes}_{setor}_{q_index}"
-            )
+
+            colR, colO = st.columns([1.2, 2.8])
+
+            with colR:
+                resp = st.radio(
+                    item,
+                    ["Sim", "Não", "Não aplicável"],
+                    horizontal=True,
+                    index=None,
+                    key=f"q_{tipo}_{ano}_{mes}_{setor}_{q_index}"
+                )
+
+            with colO:
+                obs = st.text_input(
+                    "Observação (opcional)",
+                    value="",
+                    key=f"obs_{tipo}_{ano}_{mes}_{setor}_{q_index}"
+                )
+
+            respostas[item_key] = {"resp": resp, "obs": obs.strip()}
             q_index += 1
 
         st.divider()
@@ -494,7 +548,7 @@ if pagina == "📝 Preencher":
         elif not inspecionado_por.strip():
             st.error("Informe quem realizou a inspeção (Inspecionado por).")
         else:
-            faltando = [k for k, v in respostas.items() if v is None]
+            faltando = [k for k, v in respostas.items() if v.get("resp") is None]
             if faltando:
                 st.error(f"⚠️ Existem {len(faltando)} respostas sem preenchimento. Responda todas as perguntas para salvar.")
             else:
@@ -546,8 +600,8 @@ elif pagina == "📊 Dashboard":
         else:
             total_sim = int(dff["sim"].sum())
             total_nao = int(dff["nao"].sum())
-            total_itens = int(dff["total_itens"].sum())
-            pct = (total_sim / total_itens * 100) if total_itens > 0 else 0
+            total_kpi = total_sim + total_nao
+            pct = (total_sim / total_kpi * 100) if total_kpi > 0 else 0
 
             k1, k2, k3, k4 = st.columns(4)
             k1.metric("Registros", len(dff))
@@ -566,6 +620,7 @@ elif pagina == "📊 Dashboard":
             if x.empty:
                 st.info("Sem itens explodidos.")
             else:
+                # gráfico só sim/nao (ignora N/A)
                 graf_sg = x.groupby("subgrupo")[["sim", "nao"]].sum().sort_values("nao", ascending=False)
                 st.bar_chart(graf_sg)
 
@@ -574,7 +629,7 @@ elif pagina == "📊 Dashboard":
             st.line_chart(evol)
 
             st.divider()
-            st.write("### Exportar (CSV) — disponível para o usuário")
+            st.write("### Exportar (CSV) — inclui Não aplicável e Observação")
             csv_bytes = export_flat_csv(dff)
             st.download_button(
                 "⬇️ Baixar CSV (filtrado)",
@@ -589,11 +644,11 @@ elif pagina == "📊 Dashboard":
 # ========================
 elif pagina == "🛠️ Admin":
     if not is_admin:
-        st.error("Acesso negado. Verifique o link Admin.")
+        st.error("Acesso negado.")
         st.stop()
 
     st.subheader("Admin (interno)")
-    st.caption("Acesso via URL: ?admin=1&key=...")
+    st.caption("Acesso via URL: ?admin=1&key=... (opcional)")
 
     df = load_df()
     if df.empty:
