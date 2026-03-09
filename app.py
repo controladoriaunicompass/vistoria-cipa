@@ -1,37 +1,34 @@
 import streamlit as st
 import pandas as pd
-import sqlite3
-import json
+import gspread
+from google.oauth2.service_account import Credentials
 from datetime import datetime, date
 
 # ========================
 # CONFIGURAÇÕES
 # ========================
 APP_TITULO = "Plataforma de Inspeções - CIPA & Brigada"
-APP_VERSAO = "v4.5"
+APP_VERSAO = "v5.0"
 AMBIENTE = "Produção"
 
-SENHA_USUARIO = "SSTLIDER"       # senha para usuários preencherem/consultarem
-CHAVE_ADMIN = "Uni06032023"      # chave interna (admin via URL e/ou login)
+SENHA_USUARIO = "SSTLIDER"
+CHAVE_ADMIN = "Uni06032023"
 
-DB = "banco_v4.db"
-MESES = ["01","02","03","04","05","06","07","08","09","10","11","12"]
+SPREADSHEET_NAME = "inspecoes_CIPA"
+WS_DADOS = "dados"
+WS_BACKUP = "backup"
+
+MESES = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"]
 
 # ========================
-# PAGE CONFIG (ANTES DE QUALQUER st.*)
+# PAGE CONFIG
 # ========================
 st.set_page_config(page_title=APP_TITULO, layout="wide")
 
 # ========================
-# QUERY PARAMS (compatível com versões antigas e novas)
+# QUERY PARAMS
 # ========================
 def get_qp(name: str, default: str = "") -> str:
-    """
-    Retorna query param de forma compatível com:
-    - st.query_params (novo)
-    - st.experimental_get_query_params (antigo)
-    """
-    # Streamlit novo
     try:
         qp = st.query_params
         val = qp.get(name, default)
@@ -41,7 +38,6 @@ def get_qp(name: str, default: str = "") -> str:
     except Exception:
         pass
 
-    # Streamlit antigo
     try:
         qp = st.experimental_get_query_params()
         val = qp.get(name, [default])
@@ -100,7 +96,7 @@ BRIGADA_SETORES = [
 ]
 
 # ========================
-# CHECKLISTS (subgrupos)
+# CHECKLISTS
 # ========================
 CHECKLISTS = {
     "CIPA": {
@@ -233,97 +229,300 @@ def subgrupos_por_tipo(tipo: str):
     return list(CHECKLISTS[tipo].keys())
 
 # ========================
-# BANCO (SQLite)
+# GOOGLE SHEETS
 # ========================
-conn = sqlite3.connect(DB, check_same_thread=False)
-c = conn.cursor()
+DADOS_HEADERS = [
+    "id_registro","tipo","subgrupo","item","resposta","observacao","ano","mes","mes_ano",
+    "setor","data_vistoria","responsavel_area","inspecionado_por","status","atualizado_em"
+]
+BACKUP_HEADERS = [
+    "acao","data_hora","id_registro","tipo","subgrupo","item","resposta","observacao","ano","mes",
+    "mes_ano","setor","data_vistoria","responsavel_area","inspecionado_por"
+]
 
-c.execute("""
-CREATE TABLE IF NOT EXISTS registros (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at TEXT NOT NULL,
-    tipo TEXT NOT NULL,
-    assunto TEXT NOT NULL,
-    ano INTEGER NOT NULL,
-    mes TEXT NOT NULL,
-    setor TEXT NOT NULL,
-    data_vistoria TEXT NOT NULL,
-    responsavel_area TEXT NOT NULL,
-    inspecionado_por TEXT NOT NULL,
-    respostas_json TEXT NOT NULL,
-    UNIQUE(tipo, assunto, ano, mes, setor)
-)
-""")
-conn.commit()
+def get_gsheet_client():
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=scopes
+    )
+    return gspread.authorize(creds)
 
-def upsert_registro(tipo, assunto, ano, mes, setor, data_vistoria, responsavel_area, inspecionado_por, respostas_dict):
-    created_at = datetime.now().isoformat(timespec="seconds")
-    c.execute("""
-        INSERT INTO registros
-        (created_at, tipo, assunto, ano, mes, setor, data_vistoria, responsavel_area, inspecionado_por, respostas_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(tipo, assunto, ano, mes, setor) DO UPDATE SET
-            created_at=excluded.created_at,
-            data_vistoria=excluded.data_vistoria,
-            responsavel_area=excluded.responsavel_area,
-            inspecionado_por=excluded.inspecionado_por,
-            respostas_json=excluded.respostas_json
-    """, (
-        created_at, tipo, assunto, int(ano), str(mes), str(setor),
-        str(data_vistoria), str(responsavel_area), str(inspecionado_por),
-        json.dumps(respostas_dict, ensure_ascii=False)
-    ))
-    conn.commit()
-
-def delete_registro(tipo, ano, mes, setor):
-    c.execute("""
-        DELETE FROM registros
-        WHERE tipo=? AND assunto=? AND ano=? AND mes=? AND setor=?
-    """, (tipo, ASSUNTO_FIXO, int(ano), str(mes), str(setor)))
-    conn.commit()
-
-def load_df():
-    df = pd.read_sql("SELECT * FROM registros", conn)
+def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
-
-    df["respostas"] = df["respostas_json"].apply(json.loads)
-
-    def count_resp(r, target):
-        # r: {item_key: {"resp": "...", "obs": "..."} }  (novo)
-        # ou r: {item_key: "Sim"/"Não"} (antigo)
-        if not isinstance(r, dict):
-            return 0
-        n = 0
-        for v in r.values():
-            if isinstance(v, dict):
-                if v.get("resp") == target:
-                    n += 1
-            else:
-                if v == target:
-                    n += 1
-        return n
-
-    df["sim"] = df["respostas"].apply(lambda r: count_resp(r, "Sim"))
-    df["nao"] = df["respostas"].apply(lambda r: count_resp(r, "Não"))
-
-    # KPI ignora "Não aplicável"
-    df["total_kpi"] = df["sim"] + df["nao"]
-    df["mes_ano"] = df["ano"].astype(str) + "-" + df["mes"]
+    df.columns = [str(c).strip().lower() for c in df.columns]
     return df
+
+def get_worksheet(spreadsheet, worksheet_name: str, headers: list[str]):
+    try:
+        ws = spreadsheet.worksheet(worksheet_name)
+    except gspread.WorksheetNotFound:
+        ws = spreadsheet.add_worksheet(title=worksheet_name, rows=1000, cols=max(20, len(headers)+5))
+        ws.append_row(headers)
+        return ws
+
+    first_row = ws.row_values(1)
+    if not first_row:
+        ws.append_row(headers)
+    else:
+        normalized_first = [str(c).strip().lower() for c in first_row]
+        normalized_headers = [h.lower() for h in headers]
+        if normalized_first != normalized_headers:
+            ws.clear()
+            ws.append_row(headers)
+    return ws
+
+def get_spreadsheet_and_tabs():
+    gc = get_gsheet_client()
+    sh = gc.open(SPREADSHEET_NAME)
+    ws_dados = get_worksheet(sh, WS_DADOS, DADOS_HEADERS)
+    ws_backup = get_worksheet(sh, WS_BACKUP, BACKUP_HEADERS)
+    return sh, ws_dados, ws_backup
+
+def worksheet_to_df(ws, expected_headers: list[str]) -> pd.DataFrame:
+    values = ws.get_all_values()
+    if not values:
+        return pd.DataFrame(columns=[h.lower() for h in expected_headers] + ["_row"])
+
+    headers = [str(h).strip().lower() for h in values[0]]
+    rows = values[1:]
+
+    if not rows:
+        return pd.DataFrame(columns=headers + ["_row"])
+
+    df = pd.DataFrame(rows, columns=headers)
+    df["_row"] = range(2, len(rows) + 2)
+    return df
+
+def get_dados_df():
+    _, ws_dados, _ = get_spreadsheet_and_tabs()
+    df = worksheet_to_df(ws_dados, DADOS_HEADERS)
+    return normalize_columns(df)
+
+def get_backup_ws():
+    _, _, ws_backup = get_spreadsheet_and_tabs()
+    return ws_backup
+
+def next_group_id(df_dados: pd.DataFrame) -> int:
+    if df_dados.empty or "id_registro" not in df_dados.columns:
+        return 1
+    vals = pd.to_numeric(df_dados["id_registro"], errors="coerce").dropna()
+    if vals.empty:
+        return 1
+    return int(vals.max()) + 1
+
+def combo_filter(df: pd.DataFrame, tipo: str, ano: int, mes: str, setor: str):
+    if df.empty:
+        return df
+    out = df.copy()
+    for col in ["tipo", "ano", "mes", "setor", "status"]:
+        if col not in out.columns:
+            out[col] = ""
+    return out[
+        (out["tipo"].astype(str) == str(tipo)) &
+        (out["ano"].astype(str) == str(ano)) &
+        (out["mes"].astype(str) == str(mes)) &
+        (out["setor"].astype(str) == str(setor)) &
+        (out["status"].astype(str).str.upper() != "EXCLUIDO")
+    ].copy()
+
+def mark_rows_excluido(ws_dados, rows_df: pd.DataFrame):
+    if rows_df.empty:
+        return
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    updates = []
+    for _, r in rows_df.iterrows():
+        row_num = int(r["_row"])
+        updates.append({
+            "range": f"N{row_num}:O{row_num}",
+            "values": [["EXCLUIDO", now]]
+        })
+    if updates:
+        ws_dados.batch_update(updates)
+
+def append_backup_rows(ws_backup, acao: str, rows: list[list]):
+    if not rows:
+        return
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    payload = []
+    for row in rows:
+        payload.append([acao, now] + row)
+    ws_backup.append_rows(payload, value_input_option="USER_ENTERED")
+
+def upsert_registro(tipo, ano, mes, setor, data_vistoria, responsavel_area, inspecionado_por, respostas_dict):
+    _, ws_dados, ws_backup = get_spreadsheet_and_tabs()
+    df_dados = get_dados_df()
+
+    existentes = combo_filter(df_dados, tipo, ano, mes, setor)
+    if not existentes.empty:
+        mark_rows_excluido(ws_dados, existentes)
+
+    novo_id = next_group_id(df_dados)
+    agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    mes_ano = f"{ano}-{mes}"
+
+    rows_to_append = []
+    backup_rows = []
+
+    for item_key, payload in respostas_dict.items():
+        if " :: " in item_key:
+            subgrupo, item = item_key.split(" :: ", 1)
+        else:
+            subgrupo, item = "(Sem subgrupo)", item_key
+
+        resp = payload.get("resp")
+        obs = payload.get("obs", "")
+
+        row = [
+            novo_id,
+            tipo,
+            subgrupo,
+            item,
+            resp,
+            obs,
+            ano,
+            mes,
+            mes_ano,
+            setor,
+            data_vistoria,
+            responsavel_area,
+            inspecionado_por,
+            "ATIVO",
+            agora,
+        ]
+        rows_to_append.append(row)
+
+        backup_row = [
+            novo_id,
+            tipo,
+            subgrupo,
+            item,
+            resp,
+            obs,
+            ano,
+            mes,
+            mes_ano,
+            setor,
+            data_vistoria,
+            responsavel_area,
+            inspecionado_por,
+        ]
+        backup_rows.append(backup_row)
+
+    if rows_to_append:
+        ws_dados.append_rows(rows_to_append, value_input_option="USER_ENTERED")
+        append_backup_rows(ws_backup, "UPSERT", backup_rows)
+
+def delete_registro(tipo, ano, mes, setor):
+    _, ws_dados, ws_backup = get_spreadsheet_and_tabs()
+    df_dados = get_dados_df()
+    existentes = combo_filter(df_dados, tipo, ano, mes, setor)
+
+    if existentes.empty:
+        return False
+
+    mark_rows_excluido(ws_dados, existentes)
+
+    backup_rows = []
+    for _, r in existentes.iterrows():
+        backup_rows.append([
+            r.get("id_registro", ""),
+            r.get("tipo", ""),
+            r.get("subgrupo", ""),
+            r.get("item", ""),
+            r.get("resposta", ""),
+            r.get("observacao", ""),
+            r.get("ano", ""),
+            r.get("mes", ""),
+            r.get("mes_ano", ""),
+            r.get("setor", ""),
+            r.get("data_vistoria", ""),
+            r.get("responsavel_area", ""),
+            r.get("inspecionado_por", ""),
+        ])
+    append_backup_rows(ws_backup, "DELETE", backup_rows)
+    return True
+
+def load_df():
+    df = get_dados_df()
+    if df.empty:
+        return pd.DataFrame()
+
+    for col in DADOS_HEADERS:
+        if col not in df.columns:
+            df[col] = ""
+
+    ativos = df[df["status"].astype(str).str.upper() != "EXCLUIDO"].copy()
+    if ativos.empty:
+        return pd.DataFrame()
+
+    ativos["ano"] = pd.to_numeric(ativos["ano"], errors="coerce")
+    ativos = ativos.dropna(subset=["ano"])
+    ativos["ano"] = ativos["ano"].astype(int)
+
+    ativos["mes"] = ativos["mes"].astype(str).str.zfill(2)
+    ativos["mes_ano"] = ativos["ano"].astype(str) + "-" + ativos["mes"]
+
+    group_cols = [
+        "tipo", "ano", "mes", "setor", "data_vistoria",
+        "responsavel_area", "inspecionado_por"
+    ]
+
+    rows = []
+    grouped = ativos.groupby(group_cols, dropna=False)
+    for keys, g in grouped:
+        tipo, ano, mes, setor, data_vistoria, responsavel_area, inspecionado_por = keys
+
+        respostas = {}
+        for _, rr in g.iterrows():
+            item_key = f"{rr['subgrupo']} :: {rr['item']}"
+            respostas[item_key] = {
+                "resp": rr["resposta"],
+                "obs": rr.get("observacao", "")
+            }
+
+        def count_resp(target):
+            n = 0
+            for v in respostas.values():
+                if isinstance(v, dict) and v.get("resp") == target:
+                    n += 1
+            return n
+
+        sim = count_resp("Sim")
+        nao = count_resp("Não")
+        total_kpi = sim + nao
+
+        rows.append({
+            "tipo": tipo,
+            "ano": int(ano),
+            "mes": mes,
+            "mes_ano": f"{ano}-{mes}",
+            "setor": setor,
+            "data_vistoria": data_vistoria,
+            "responsavel_area": responsavel_area,
+            "inspecionado_por": inspecionado_por,
+            "respostas": respostas,
+            "sim": sim,
+            "nao": nao,
+            "total_kpi": total_kpi,
+        })
+
+    return pd.DataFrame(rows)
 
 def explode_respostas(dff: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for _, r in dff.iterrows():
         resp_dict = r["respostas"] if isinstance(r.get("respostas"), dict) else {}
-
         for item_key, v in resp_dict.items():
             if " :: " in item_key:
                 subgrupo, item = item_key.split(" :: ", 1)
             else:
                 subgrupo, item = "(Sem subgrupo)", item_key
 
-            # compatibilidade
             if isinstance(v, dict):
                 resp = v.get("resp")
                 obs = v.get("obs", "")
@@ -350,10 +549,9 @@ def explode_respostas(dff: pd.DataFrame) -> pd.DataFrame:
     if x.empty:
         return x
 
-    # gráficos e KPI usam só sim/nao; mas o CSV pode ter N/A
     x["sim"] = (x["resposta"] == "Sim").astype(int)
     x["nao"] = (x["resposta"] == "Não").astype(int)
-    x["na"]  = (x["resposta"] == "Não aplicável").astype(int)
+    x["na"] = (x["resposta"] == "Não aplicável").astype(int)
     return x
 
 def export_flat_csv(dff: pd.DataFrame) -> bytes:
@@ -362,8 +560,9 @@ def export_flat_csv(dff: pd.DataFrame) -> bytes:
         return pd.DataFrame([]).to_csv(index=False).encode("utf-8-sig")
 
     cols = [
-        "tipo","subgrupo","item","resposta","observacao",
-        "ano","mes","mes_ano","setor","data_vistoria","responsavel_area","inspecionado_por"
+        "tipo", "subgrupo", "item", "resposta", "observacao",
+        "ano", "mes", "mes_ano", "setor", "data_vistoria",
+        "responsavel_area", "inspecionado_por"
     ]
     return x[cols].to_csv(index=False).encode("utf-8-sig")
 
@@ -373,9 +572,8 @@ def export_flat_csv(dff: pd.DataFrame) -> bytes:
 if "logado" not in st.session_state:
     st.session_state.logado = False
 if "perfil" not in st.session_state:
-    st.session_state.perfil = "usuario"  # ou "admin"
+    st.session_state.perfil = "usuario"
 
-# Auto-login admin via URL (se quiser usar link interno)
 if is_admin_url and not st.session_state.logado:
     st.session_state.logado = True
     st.session_state.perfil = "admin"
@@ -454,7 +652,6 @@ if not st.session_state.logado:
             st.error("Senha incorreta.")
     st.stop()
 
-# depois do login:
 is_admin = (st.session_state.get("perfil") == "admin")
 
 # ========================
@@ -552,18 +749,20 @@ if pagina == "📝 Preencher":
             if faltando:
                 st.error(f"⚠️ Existem {len(faltando)} respostas sem preenchimento. Responda todas as perguntas para salvar.")
             else:
-                upsert_registro(
-                    tipo=tipo,
-                    assunto=ASSUNTO_FIXO,
-                    ano=ano,
-                    mes=mes,
-                    setor=setor,
-                    data_vistoria=data_vistoria.isoformat(),
-                    responsavel_area=responsavel_area.strip(),
-                    inspecionado_por=inspecionado_por.strip(),
-                    respostas_dict=respostas
-                )
-                st.success("✅ Registro salvo/atualizado!")
+                try:
+                    upsert_registro(
+                        tipo=tipo,
+                        ano=ano,
+                        mes=mes,
+                        setor=setor,
+                        data_vistoria=data_vistoria.isoformat(),
+                        responsavel_area=responsavel_area.strip(),
+                        inspecionado_por=inspecionado_por.strip(),
+                        respostas_dict=respostas
+                    )
+                    st.success("✅ Registro salvo/atualizado!")
+                except Exception as e:
+                    st.error(f"Erro ao salvar na planilha Google: {e}")
 
 # ========================
 # PÁGINA: DASHBOARD
@@ -571,7 +770,12 @@ if pagina == "📝 Preencher":
 elif pagina == "📊 Dashboard":
     st.subheader("Dashboard")
 
-    df = load_df()
+    try:
+        df = load_df()
+    except Exception as e:
+        st.error(f"Erro ao ler a planilha Google: {e}")
+        st.stop()
+
     if df.empty:
         st.info("Ainda não há registros.")
     else:
@@ -620,7 +824,6 @@ elif pagina == "📊 Dashboard":
             if x.empty:
                 st.info("Sem itens explodidos.")
             else:
-                # gráfico só sim/nao (ignora N/A)
                 graf_sg = x.groupby("subgrupo")[["sim", "nao"]].sum().sort_values("nao", ascending=False)
                 st.bar_chart(graf_sg)
 
@@ -650,7 +853,12 @@ elif pagina == "🛠️ Admin":
     st.subheader("Admin (interno)")
     st.caption("Acesso via URL: ?admin=1&key=... (opcional)")
 
-    df = load_df()
+    try:
+        df = load_df()
+    except Exception as e:
+        st.error(f"Erro ao ler a planilha Google: {e}")
+        st.stop()
+
     if df.empty:
         st.info("Sem registros.")
     else:
@@ -696,6 +904,12 @@ elif pagina == "🛠️ Admin":
 
                 confirm = st.checkbox("Confirmar exclusão", key="adm_confirm")
                 if st.button("🗑️ Excluir", disabled=not confirm, key="adm_excluir"):
-                    delete_registro(a_tipo, a_ano, a_mes, a_setor)
-                    st.success("✅ Registro excluído.")
-                    st.rerun()
+                    try:
+                        ok = delete_registro(a_tipo, a_ano, a_mes, a_setor)
+                        if ok:
+                            st.success("✅ Registro excluído.")
+                            st.rerun()
+                        else:
+                            st.warning("Nenhum registro ativo encontrado para excluir.")
+                    except Exception as e:
+                        st.error(f"Erro ao excluir na planilha Google: {e}")
